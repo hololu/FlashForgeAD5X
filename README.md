@@ -5,7 +5,7 @@ Bu proje, **FlashForge AD5X (Adventurer 5M / 5M Pro)** 3D yazıcıları için ta
 Yazıcının TCP kontrol portu (8899) ve HTTP detay/sensör portu (8898) protokolleri tersine mühendislik yöntemleriyle çözümlenerek; izleme, kontrol ve baskı sırasındaki ince ayarların (Live Tuning) yönetilmesi tek bir çatı altında birleştirilmiştir.
 
 ---
-![Ana Ekran](https://www.mustafaozkaya.tr/hsensms-ss01.png)
+![Ana Ekran](https://git.mustafaozkaya.tr/hololu/FlashForgeAD5X/raw/commit/313899c7246f95a50b7f6c768c6b9e531ceb58f4/ad5x/flashforge_ad5x.jpg)
 ---
 ## 📂 Proje Yapısı
 
