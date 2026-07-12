@@ -5,9 +5,8 @@ Bu proje, **FlashForge AD5X (Adventurer 5M / 5M Pro)** 3D yazıcıları için ta
 Yazıcının TCP kontrol portu (8899) ve HTTP detay/sensör portu (8898) protokolleri tersine mühendislik yöntemleriyle çözümlenerek; izleme, kontrol ve baskı sırasındaki ince ayarların (Live Tuning) yönetilmesi tek bir çatı altında birleştirilmiştir.
 
 ---
-![Ana Ekran](https://git.mustafaozkaya.tr/hololu/FlashForgeAD5X/raw/commit/313899c7246f95a50b7f6c768c6b9e531ceb58f4/ad5x/flashforge_ad5x.jpg)
+![Ana Ekran](https://www.mustafaozkaya.tr/hsensms-ss01.png)
 ---
-
 ## 📂 Proje Yapısı
 
 Proje dosyaları ve klasör mimarisi aşağıdaki şekildedir:
@@ -58,97 +57,40 @@ Eğer yazıcı **Adventurer 5M Pro** ise HTTP portu (8898) üzerinden IFS (Integ
 
 ## 🚀 Devreye Alma ve Çalıştırma
 
-### A. Web Dashboard Paket Kurulumu (PEP 668 Çözümü)
+### A. Web Dashboard Kurulumu ve Başlatılması
 
-Modern Linux dağıtımlarında (Debian, Ubuntu, Raspberry Pi OS) sistem kararlılığını korumak için doğrudan global paket yükleme sınırlandırılmıştır. Projeyi ayağa kaldırmak için aşağıdaki iki yöntemden birini seçebilirsiniz:
-
-#### Yöntem 1: Sanal Ortam (Virtual Environment) Oluşturma *(Önerilen & En Güvenli)*
-Sanal ortam oluşturarak bağımlılıkları sistemden izole eder ve güvenli bir çalışma alanı sağlarsınız:
-
-1. **Sanal ortamı oluşturun:**
-   ```bash
-   python3 -m venv venv
-   ```
-   *(Eğer venv paketi eksikse: `sudo apt install python3-venv`)*
-
-2. **Sanal ortamı aktif hale getirin:**
-   ```bash
-   source venv/bin/activate
-   ```
-
-3. **Gerekli paketleri kurun:**
+1. **Bağımlılıkların Kurulması:**
+   Sisteminizde Python 3.9+ kurulu olduğundan emin olun. Gerekli kütüphaneleri yükleyin:
    ```bash
    pip install fastapi uvicorn jinja2 pydantic
    ```
 
-#### Yöntem 2: Global Kurulum (Hızlı Yol)
-Paketleri sanal ortam kullanmadan doğrudan sisteme yüklemek istiyorsanız `--break-system-packages` bayrağını kullanabilirsiniz:
-```bash
-pip install fastapi uvicorn jinja2 pydantic --break-system-packages
-```
+2. **Çevre Değişkenleri (Opsiyonel):**
+   Uygulama varsayılan olarak `config.json` dosyasını arar. Eğer bu dosya yoksa, yazıcı bağlantı bilgilerini çevre değişkenlerinden alabilir:
+   - `FLASHFORGE_HOST`: Yazıcının IP Adresi (Örn: `192.168.1.12`)
+   - `FLASHFORGE_PORT`: Yazıcı Kontrol Portu (Varsayılan: `8899`)
+   - `FLASHFORGE_SERIAL`: Yazıcı Seri No (IFS filament bilgisi için gerekli)
+   - `FLASHFORGE_CHECK_CODE`: Yazıcı LAN Şifresi (IFS filament bilgisi için gerekli)
 
----
-
-### B. Web Dashboard Sunucusunu Başlatma
-
-1. **Sunucuyu Çalıştırın:**
-   * Sanal ortam kullanıyorsanız ortamın aktif olduğundan emin olun (`source venv/bin/activate`).
-   * Ardından sunucuyu başlatın:
-     ```bash
-     python3 -m uvicorn flashforge_panel:app --host 0.0.0.0 --port 8000 --reload
-     ```
-2. **Arayüze Erişim:**
-   Tarayıcınızdan `http://localhost:8000` (veya ağdaki cihazlar için `http://<cihaz_ip>:8000`) adresine girerek kontrol paneline erişebilirsiniz.
-
----
-
-### C. Sistem Servisi (Systemd) Olarak Yapılandırma (Linux / Raspberry Pi)
-
-Uygulamanın cihaz her açıldığında arka planda otomatik olarak bir servis olarak başlamasını istiyorsanız:
-
-1. **Servis Yapılandırma Dosyasını Açın:**
+3. **Sunucunun Başlatılması:**
+   Terminal veya PowerShell üzerinden proje kök dizininde şu komutu çalıştırın:
    ```bash
-   sudo nano /etc/systemd/system/flashforge.service
+   python -m uvicorn flashforge_panel:app --host 0.0.0.0 --port 8000 --reload
    ```
 
-2. **Aşağıdaki Kodları Yapıştırın ve Kaydedin:**
-   *(Kullanıcı adınızı ve klasör yollarını kendi sisteminize göre güncellemeyi unutmayın)*
-   ```ini
-   [Unit]
-   Description=FlashForge AD5X Web Dashboard Servisi
-   After=network.target
-
-   [Service]
-   Type=simple
-   User=ololu
-   WorkingDirectory=/home/ololu/calismalar/ai/Python/flashforge
-   ExecStart=/home/ololu/calismalar/ai/Python/flashforge/venv/bin/python -m uvicorn flashforge_panel:app --host 0.0.0.0 --port 8000
-   Restart=always
-   RestartSec=5
-
-   [Install]
-   WantedBy=multi-user.target
-   ```
-
-3. **Servisi Aktifleştirin ve Başlatın:**
-   ```bash
-   sudo systemctl daemon-reload
-   sudo systemctl enable flashforge.service
-   sudo systemctl start flashforge.service
-   ```
-
-4. **Durum ve Günlük Takibi:**
-   * Durum sorgulama: `sudo systemctl status flashforge.service`
-   * Canlı log takibi: `journalctl -u flashforge.service -f`
+4. **Kullanıcı Arayüzüne Erişim:**
+   Tarayıcınızdan `http://localhost:8000` (veya sunucu IP'si üzerinden `http://<sunucu_ip>:8000`) adresine giderek kontrol paneline erişebilirsiniz. Sağ üst köşedeki **Ayarlar** (çark) simgesinden yazıcı IP adresi ve LAN kimlik bilgilerini canlı olarak güncelleyebilirsiniz.
 
 ---
 
-### D. Home Assistant Entegrasyonu Kurulumu
+### B. Home Assistant Entegrasyonu Kurulumu
 
-1. `custom_components/flashforge_ad5x` klasörünü Home Assistant kurulumunuzun içindeki `/config/custom_components/` dizinine kopyalayın.
-2. Home Assistant sunucunuzu yeniden başlatın.
-3. HA arayüzünden **Ayarlar -> Cihazlar & Hizmetler -> Entegrasyon Ekle** kısmından **FlashForge AD5X** entegrasyonunu arayıp ekleyin.
-4. Yazıcınızın IP adresini, Portunu (8899), Seri Numarasını ve LAN modundaki şifresini (Check Code) girerek kurulumu tamamlayın.
+1. Proje içindeki `custom_components/flashforge_ad5x` klasörünü Home Assistant kurulumunuzun içindeki `/config/custom_components/` dizinine kopyalayın.
+2. Klasör yapısının `/config/custom_components/flashforge_ad5x/manifest.json` şeklinde olduğundan emin olun.
+3. Home Assistant sunucunuzu yeniden başlatın.
+4. HA arayüzünden **Ayarlar -> Cihazlar & Hizmetler -> Entegrasyon Ekle** adımlarını izleyin.
+5. Listeden **FlashForge AD5X** entegrasyonunu arayın ve seçin.
+6. Gelen yapılandırma penceresinde yazıcınızın IP adresini, Portunu (8899), Seri Numarasını ve LAN modundaki şifresini (Check Code) girerek kurulumu tamamlayın.
 
 ---
 
