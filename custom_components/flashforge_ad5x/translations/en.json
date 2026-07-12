@@ -1,0 +1,19 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "FlashForge AD5X Connection",
+        "description": "Enter the IP address of your FlashForge 3D Printer. Optionally enter the Serial Number and LAN Code for detailed filament (IFS) information.",
+        "data": {
+          "host": "IP Address",
+          "port": "TCP Control Port",
+          "serial": "Serial Number (Optional)",
+          "check_code": "LAN Mode Password / Code (Optional)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not establish TCP connection to the printer. Please check the IP address and verify the printer is turned on."
+    }
+  }
+}

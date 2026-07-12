@@ -1,0 +1,19 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "FlashForge AD5X Bağlantısı",
+        "description": "FlashForge 3D Yazıcınızın IP adresini ve isteğe bağlı olarak detaylı filament (IFS) bilgileri için Seri No ve LAN kodunu girin.",
+        "data": {
+          "host": "IP Adresi",
+          "port": "TCP Kontrol Portu",
+          "serial": "Seri Numarası (Opsiyonel)",
+          "check_code": "LAN Modu Şifresi / Kodu (Opsiyonel)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Yazıcıya TCP soket üzerinden bağlantı kurulamadı. IP adresini ve yazıcının açık olduğunu kontrol edin."
+    }
+  }
+}

@@ -1,0 +1,2723 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlashForge AD5X Kontrol Paneli</title>
+    <!-- Modern web typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-base: #080c14;
+            --bg-grid-color: rgba(99, 102, 241, 0.05);
+            --bg-card: rgba(17, 24, 39, 0.7);
+            --bg-card-hover: rgba(24, 32, 51, 0.85);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-highlight: rgba(99, 102, 241, 0.25);
+            
+            --text-main: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            
+            /* Curated, harmonious colors instead of generic ones */
+            --accent-primary: #4f46e5; /* Indigo */
+            --accent-glow: rgba(79, 70, 229, 0.4);
+            
+            --color-nozzle: #f97316; /* Amber/Orange */
+            --color-nozzle-glow: rgba(249, 115, 22, 0.3);
+            
+            --color-bed: #06b6d4; /* Cyan */
+            --color-bed-glow: rgba(6, 182, 212, 0.3);
+            
+            --color-success: #10b981; /* Emerald */
+            --color-success-glow: rgba(16, 185, 129, 0.2);
+            
+            --color-warning: #f59e0b; /* Amber */
+            --color-danger: #ef4444; /* Rose Red */
+            --color-danger-glow: rgba(239, 68, 68, 0.4);
+            
+            --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            --border-radius-lg: 16px;
+            --border-radius-md: 10px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-base);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(79, 70, 229, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.1) 0px, transparent 50%),
+                linear-gradient(to bottom, var(--bg-base), #030712);
+            background-attachment: fixed;
+            color: var(--text-main);
+            min-height: 100vh;
+            padding: 24px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1280px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* HEADER AREA */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .header-logo-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .printer-icon-glow {
+            width: 42px;
+            height: 42px;
+            background: linear-gradient(135deg, var(--accent-primary), var(--color-bed));
+            border-radius: var(--border-radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 15px var(--accent-glow);
+        }
+
+        .header-title-wrapper h1 {
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            background: linear-gradient(to right, #ffffff, var(--text-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header-title-wrapper p {
+            font-size: 13px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .ip-badge {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--color-bed);
+        }
+
+        .status-badge-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            padding: 6px 14px;
+            border-radius: 999px;
+            backdrop-filter: blur(8px);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--text-muted);
+            position: relative;
+        }
+
+        .status-dot.online {
+            background-color: var(--color-success);
+            box-shadow: 0 0 10px var(--color-success);
+            animation: pulse-glow 2s infinite;
+        }
+
+        .status-dot.offline {
+            background-color: var(--color-danger);
+            box-shadow: 0 0 10px var(--color-danger);
+        }
+
+        .status-text {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* GRID LAYOUT */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 1024px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .column-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            width: 100%;
+        }
+
+        /* CARD BASE */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-lg);
+            padding: 20px;
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            transition: var(--transition-smooth);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: transparent;
+            transition: var(--transition-smooth);
+        }
+
+        .card:hover {
+            border-color: var(--border-highlight);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .card.active::before {
+            background: linear-gradient(to right, var(--accent-primary), var(--color-bed));
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 12px;
+        }
+
+        .card-title {
+            font-size: 16px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-main);
+        }
+
+        .card-title svg {
+            color: var(--color-bed);
+        }
+
+        /* WEBCAM SECTION */
+        .camera-stream-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: var(--border-radius-md);
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .camera-stream-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+        }
+
+        /* Fullscreen styles for camera */
+        .camera-stream-container:-webkit-full-screen {
+            width: 100vw !important;
+            height: 100vh !important;
+            aspect-ratio: auto !important;
+            background: #000 !important;
+            border: none !important;
+            border-radius: 0 !important;
+        }
+        .camera-stream-container:-ms-fullscreen {
+            width: 100vw !important;
+            height: 100vh !important;
+            aspect-ratio: auto !important;
+            background: #000 !important;
+            border: none !important;
+            border-radius: 0 !important;
+        }
+        .camera-stream-container:fullscreen {
+            width: 100vw !important;
+            height: 100vh !important;
+            aspect-ratio: auto !important;
+            background: #000 !important;
+            border: none !important;
+            border-radius: 0 !important;
+        }
+        .camera-stream-container:fullscreen img {
+            max-height: 100vh !important;
+            max-width: 100vw !important;
+            width: auto !important;
+            height: auto !important;
+            object-fit: contain !important;
+            margin: auto !important;
+        }
+
+        .camera-fallback {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #0d0f17;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            color: var(--text-secondary);
+            text-align: center;
+            padding: 20px;
+            gap: 8px;
+        }
+
+        /* MAIN STATE PANEL (Left side) */
+        .print-progress-circle-wrap {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 0;
+            position: relative;
+        }
+
+        .radial-progress-svg {
+            transform: rotate(-90deg);
+            width: 160px;
+            height: 160px;
+        }
+
+        .radial-progress-bg {
+            fill: none;
+            stroke: rgba(255, 255, 255, 0.03);
+            stroke-width: 10;
+        }
+
+        .radial-progress-bar {
+            fill: none;
+            stroke: url(#progressGradient);
+            stroke-width: 10;
+            stroke-linecap: round;
+            stroke-dasharray: 502; /* 2 * PI * r (r=80) */
+            stroke-dashoffset: 502;
+            transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .radial-progress-text {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+
+        .radial-percentage {
+            font-size: 32px;
+            font-weight: 700;
+            letter-spacing: -0.03em;
+            color: #ffffff;
+        }
+
+        .radial-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: -2px;
+        }
+
+        .file-info-box {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-md);
+            padding: 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .file-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            background: rgba(99, 102, 241, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--accent-primary);
+        }
+
+        .file-details {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .file-name-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .file-name-val {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-main);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .status-item {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-md);
+            padding: 10px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .status-item-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-item-label svg {
+            width: 12px;
+            height: 12px;
+        }
+
+        .status-item-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        /* INTELLIGENT FILAMENT SYSTEM (IFS) SLOTS */
+        .ifs-slots-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+
+        @media (max-width: 600px) {
+            .ifs-slots-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .ifs-slot-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-md);
+            padding: 12px 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            position: relative;
+            transition: var(--transition-smooth);
+            text-align: center;
+        }
+
+        .ifs-slot-card.active {
+            border-color: var(--color-success);
+            background: rgba(16, 185, 129, 0.05);
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
+        }
+
+        .ifs-slot-card.active::after {
+            content: '';
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: var(--color-success);
+            box-shadow: 0 0 8px var(--color-success);
+        }
+
+        .ifs-slot-id {
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .ifs-slot-color-circle {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .ifs-slot-color-circle.empty {
+            background: #151823 !important;
+            border-style: dashed;
+        }
+
+        .ifs-slot-color-circle.empty::before {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 2px;
+            background: rgba(255, 255, 255, 0.08);
+            transform: rotate(45deg);
+        }
+
+        .ifs-slot-material {
+            font-size: 13px;
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        .ifs-slot-status {
+            font-size: 9px;
+            color: var(--text-secondary);
+        }
+
+        /* TEMPERATURE CONTROL GRID */
+        .temp-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        @media (max-width: 600px) {
+            .temp-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .temp-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-md);
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            transition: var(--transition-smooth);
+        }
+
+        .temp-card:hover {
+            background: rgba(255, 255, 255, 0.04);
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .temp-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .temp-card-title {
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .temp-card.nozzle .temp-card-title svg { color: var(--color-nozzle); }
+        .temp-card.bed .temp-card-title svg { color: var(--color-bed); }
+
+        .temp-card.nozzle:hover {
+            box-shadow: 0 0 15px var(--color-nozzle-glow);
+            border-color: rgba(249, 115, 22, 0.2);
+        }
+
+        .temp-card.bed:hover {
+            box-shadow: 0 0 15px var(--color-bed-glow);
+            border-color: rgba(6, 182, 212, 0.2);
+        }
+
+        .temp-display {
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+            margin: 6px 0;
+        }
+
+        .temp-value-current {
+            font-size: 28px;
+            font-weight: 700;
+            color: #ffffff;
+            line-height: 1;
+        }
+
+        .temp-value-target {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .temp-bar-wrap {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 999px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .temp-bar-fill {
+            height: 100%;
+            width: 0%;
+            border-radius: 999px;
+            transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .temp-card.nozzle .temp-bar-fill {
+            background: linear-gradient(to right, var(--color-nozzle), #ef4444);
+            box-shadow: 0 0 8px var(--color-nozzle-glow);
+        }
+
+        .temp-card.bed .temp-bar-fill {
+            background: linear-gradient(to right, var(--color-bed), #3b82f6);
+            box-shadow: 0 0 8px var(--color-bed-glow);
+        }
+
+        /* TEMPERATURE INPUTS & PRESETS */
+        .temp-input-group {
+            display: flex;
+            gap: 6px;
+            margin-top: 4px;
+        }
+
+        .temp-input {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 8px;
+            color: #ffffff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            outline: none;
+            transition: var(--transition-smooth);
+            text-align: center;
+        }
+
+        .temp-input:focus {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 8px rgba(79, 70, 229, 0.25);
+        }
+
+        .temp-btn {
+            background: var(--accent-primary);
+            border: none;
+            color: #ffffff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+
+        .temp-btn:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .presets-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 6px;
+        }
+
+        .preset-btn {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 6px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+
+        .preset-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.15);
+            color: #ffffff;
+        }
+
+        .preset-btn.off {
+            color: var(--color-danger);
+            border-color: rgba(239, 68, 68, 0.15);
+        }
+
+        .preset-btn.off:hover {
+            background: rgba(239, 68, 68, 0.08);
+            border-color: rgba(239, 68, 68, 0.30);
+            color: #ffffff;
+        }
+
+        /* SLIDERS & TUNING STYLES */
+        .tuning-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .slider-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-md);
+            padding: 10px 14px;
+        }
+
+        .slider-label-group {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            flex: 1;
+        }
+
+        .slider-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .slider-title svg {
+            width: 14px;
+            height: 14px;
+            color: var(--color-bed);
+        }
+
+        .slider-desc {
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+
+        .slider-input-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 180px;
+        }
+
+        .range-slider {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 5px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.1);
+            outline: none;
+            transition: var(--transition-smooth);
+        }
+
+        .range-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--color-bed);
+            cursor: pointer;
+            box-shadow: 0 0 6px var(--color-bed-glow);
+            transition: var(--transition-smooth);
+        }
+
+        .range-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.25);
+        }
+
+        .slider-val {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            font-weight: 600;
+            color: #ffffff;
+            min-width: 45px;
+            text-align: right;
+        }
+
+        .babystep-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-md);
+            padding: 10px 14px;
+        }
+
+        .tuning-btn-group {
+            display: flex;
+            gap: 4px;
+        }
+
+        .tuning-btn {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+
+        .tuning-btn:hover {
+            background: var(--accent-primary);
+            border-color: var(--border-highlight);
+            box-shadow: 0 0 8px var(--accent-glow);
+        }
+
+        /* ACTIONS & CONTROLS */
+        .controls-sections {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .controls-row {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .controls-section-title {
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-weight: 600;
+            border-left: 2px solid var(--accent-primary);
+            padding-left: 8px;
+        }
+
+        .buttons-flex {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 16px;
+            border-radius: var(--border-radius-md);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid transparent;
+            color: #ffffff;
+            transition: var(--transition-smooth);
+            user-select: none;
+        }
+
+        .btn:hover {
+            transform: translateY(-1.5px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn:active {
+            transform: translateY(0.5px);
+        }
+
+        .btn-primary {
+            background: var(--accent-primary);
+            box-shadow: 0 0 10px rgba(79, 70, 229, 0.2);
+        }
+
+        .btn-primary:hover {
+            background: #5a52ff;
+            box-shadow: 0 0 15px var(--accent-glow);
+        }
+
+        .btn-success {
+            background: var(--color-success);
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
+        }
+
+        .btn-success:hover {
+            background: #059669;
+            box-shadow: 0 0 15px var(--color-success-glow);
+        }
+
+        .btn-warning {
+            background: var(--color-warning);
+            color: #111827;
+        }
+
+        .btn-warning:hover {
+            background: #d97706;
+        }
+
+        .btn-danger {
+            background: var(--color-danger);
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.15);
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+            box-shadow: 0 0 15px var(--color-danger-glow);
+        }
+
+        .btn-danger.armed {
+            background: #b91c1c;
+            animation: pulse-danger 1s infinite alternate;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.04);
+            border-color: var(--border-color);
+            color: var(--text-main);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        /* JOG CONTROLLER */
+        .jog-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+            background: rgba(255, 255, 255, 0.01);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-md);
+            padding: 16px;
+        }
+
+        @media (max-width: 500px) {
+            .jog-container {
+                flex-direction: column;
+                gap: 16px;
+            }
+        }
+
+        .jog-circle-pad {
+            position: relative;
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .jog-pad-btn {
+            position: absolute;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+            user-select: none;
+        }
+
+        .jog-pad-btn:hover {
+            background: var(--accent-primary);
+            color: #ffffff;
+            border-color: var(--border-highlight);
+            box-shadow: 0 0 10px var(--accent-glow);
+        }
+
+        .jog-pad-btn.y-plus { top: 6px; left: 52px; }
+        .jog-pad-btn.y-minus { bottom: 6px; left: 52px; }
+        .jog-pad-btn.x-minus { left: 6px; top: 52px; }
+        .jog-pad-btn.x-plus { right: 6px; top: 52px; }
+
+        .jog-pad-home {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent-primary), var(--color-bed));
+            border: none;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 0 10px var(--accent-glow);
+            transition: var(--transition-smooth);
+        }
+
+        .jog-pad-home:hover {
+            transform: scale(1.1);
+            box-shadow: 0 0 15px var(--accent-glow);
+        }
+
+        .jog-z-controls {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .jog-z-btn {
+            width: 36px;
+            height: 50px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+
+        .jog-z-btn:hover {
+            background: var(--color-bed);
+            color: #ffffff;
+            border-color: var(--color-bed-glow);
+            box-shadow: 0 0 10px var(--color-bed-glow);
+        }
+
+        .jog-z-label {
+            font-size: 9px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .jog-settings {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .jog-step-selector {
+            display: flex;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .jog-step-btn {
+            flex: 1;
+            padding: 8px 4px;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+            text-align: center;
+            user-select: none;
+        }
+
+        .jog-step-btn:not(:last-child) {
+            border-right: 1px solid var(--border-color);
+        }
+
+        .jog-step-btn.selected {
+            background: var(--accent-primary);
+            color: #ffffff;
+            font-weight: 600;
+        }
+
+        /* G-CODE TERMINAL */
+        .terminal-wrap {
+            background: rgba(0, 0, 0, 0.45);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-md);
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            flex: 1;
+        }
+
+        .terminal-log {
+            height: 180px;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: #10b981;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            padding: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 6px;
+            scroll-behavior: smooth;
+        }
+
+        .terminal-line {
+            line-height: 1.4;
+            word-break: break-all;
+            white-space: pre-wrap;
+        }
+
+        .terminal-line.cmd {
+            color: #3b82f6; /* Blue for commands sent */
+        }
+
+        .terminal-line.system {
+            color: var(--text-secondary);
+        }
+
+        .terminal-line.error {
+            color: var(--color-danger);
+        }
+
+        .terminal-input-row {
+            display: flex;
+            gap: 6px;
+        }
+
+        .terminal-input {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 8px 12px;
+            color: #ffffff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            outline: none;
+            transition: var(--transition-smooth);
+        }
+
+        .terminal-input:focus {
+            border-color: var(--color-bed);
+            box-shadow: 0 0 8px rgba(6, 182, 212, 0.2);
+        }
+
+        .terminal-macros {
+            display: flex;
+            gap: 6px;
+        }
+
+        .macro-chip {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+
+        .macro-chip:hover {
+            background: rgba(6, 182, 212, 0.08);
+            border-color: rgba(6, 182, 212, 0.3);
+            color: var(--color-bed);
+        }
+
+        /* LED CONTROLS IN HEADER/CARD */
+        .led-panel-box {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-md);
+            padding: 12px 16px;
+        }
+
+        .led-icon-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .led-icon-group svg {
+            width: 20px;
+            height: 20px;
+            color: var(--text-secondary);
+            transition: var(--transition-smooth);
+        }
+
+        .led-icon-group.active svg {
+            color: #f59e0b;
+            filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.6));
+        }
+
+        .led-btn-toggle {
+            display: flex;
+            gap: 4px;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-color);
+            padding: 3px;
+            border-radius: 20px;
+        }
+
+        .led-toggle-option {
+            padding: 4px 12px;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 16px;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+            color: var(--text-secondary);
+            user-select: none;
+        }
+
+        .led-toggle-option.active {
+            background: var(--accent-primary);
+            color: #ffffff;
+        }
+
+        /* ERROR TOAST CONSOLE */
+        .error-alert-banner {
+            display: none;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.25);
+            padding: 12px 16px;
+            border-radius: var(--border-radius-md);
+            align-items: center;
+            gap: 12px;
+            color: var(--color-danger);
+            font-size: 13px;
+            animation: slide-down 0.3s ease;
+        }
+
+        .error-alert-banner svg {
+            flex-shrink: 0;
+        }
+
+        /* FOOTER STATS */
+        footer {
+            margin-top: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* DISABLED BUTTON STYLING FOR SECURITY */
+        .btn:disabled, 
+        .jog-pad-btn:disabled, 
+        .jog-z-btn:disabled, 
+        .jog-pad-home:disabled, 
+        .jog-step-btn:disabled {
+            opacity: 0.3 !important;
+            cursor: not-allowed !important;
+            pointer-events: none !important;
+            box-shadow: none !important;
+            transform: none !important;
+            background: rgba(255, 255, 255, 0.05) !important;
+            color: var(--text-muted) !important;
+            border-color: var(--border-color) !important;
+        }
+
+        /* ANIMATIONS */
+        @keyframes pulse-glow {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.5; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        @keyframes pulse-danger {
+            0% { box-shadow: 0 0 4px rgba(239, 68, 68, 0.4); }
+            100% { box-shadow: 0 0 16px rgba(239, 68, 68, 0.8); }
+        }
+
+        @keyframes slide-down {
+            from { transform: translateY(-10px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        /* MODAL OVERLAY */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            animation: fadeIn 0.25s ease;
+        }
+
+        .modal-window {
+            background: rgba(17, 24, 39, 0.95);
+            border: 1px solid var(--border-highlight);
+            border-radius: var(--border-radius-lg);
+            width: 95%;
+            max-width: 500px;
+            padding: 24px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            animation: scaleIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            padding-bottom: 12px;
+            color: #ffffff;
+        }
+
+        .modal-body {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .form-input {
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px 12px;
+            color: #ffffff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            outline: none;
+            transition: var(--transition-smooth);
+        }
+
+        .form-input:focus {
+            border-color: var(--color-bed);
+            box-shadow: 0 0 10px rgba(6, 182, 212, 0.2);
+        }
+
+        .status-debug-section {
+            background: rgba(255, 255, 255, 0.01);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-md);
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            font-size: 12px;
+        }
+
+        .debug-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .debug-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 600;
+        }
+
+        .indicator-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .indicator-dot.ok { background-color: var(--color-success); box-shadow: 0 0 6px var(--color-success); }
+        .indicator-dot.err { background-color: var(--color-danger); box-shadow: 0 0 6px var(--color-danger); }
+
+        .debug-error-msg {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10.5px;
+            color: var(--color-danger);
+            background: rgba(239, 68, 68, 0.05);
+            padding: 4px 8px;
+            border-radius: 4px;
+            margin-top: 4px;
+            word-break: break-all;
+            white-space: pre-wrap;
+            border: 1px solid rgba(239, 68, 68, 0.1);
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            padding-top: 14px;
+            margin-top: 6px;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes scaleIn {
+            from { transform: scale(0.95); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- HEADER -->
+        <header>
+            <div class="header-logo-group">
+                <div class="printer-icon-glow">
+                    <!-- 3D Printer Inline SVG Icon -->
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M4 18h16M4 22h16M2 14h20M2 10h20"></path>
+                        <path d="m6 10 6-6 6 6M12 4v6"></path>
+                    </svg>
+                </div>
+                <div class="header-title-wrapper">
+                    <h1>FlashForge AD5X Kontrol</h1>
+                    <p>Yazıcı Adresi: <span class="ip-badge">{{ printer }}</span></p>
+                </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <button class="macro-chip" style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 13px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 6px;" onclick="openSettingsModal()" title="Bağlantı ve Kimlik Bilgilerini Düzenle">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                    Ayarlar
+                </button>
+                <div class="status-badge-container">
+                    <div class="status-dot" id="systemStatusDot"></div>
+                    <span class="status-text" id="systemStatusText">BAĞLANTI YOK</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- ERROR BANNER -->
+        <div class="error-alert-banner" id="globalErrorBanner">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <span id="globalErrorText">Hata: Sunucuya bağlanılamıyor.</span>
+        </div>
+
+        <!-- MAIN DASHBOARD CONTENT -->
+        <div class="dashboard-grid">
+            
+            <!-- LEFT COLUMN: PRINT MONITORING & CAMERA -->
+            <div class="column-wrapper">
+                <!-- PRINT MONITOR CARD -->
+                <div class="card active">
+                    <div class="card-header">
+                        <span class="card-title">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                <line x1="9" y1="3" x2="9" y2="21"></line>
+                                <line x1="15" y1="3" x2="15" y2="21"></line>
+                                <line x1="3" y1="9" x2="21" y2="9"></line>
+                                <line x1="3" y1="15" x2="21" y2="15"></line>
+                            </svg>
+                            Yazdırma İzleyici
+                        </span>
+                        <span class="ip-badge" id="machineMode">-</span>
+                    </div>
+
+                    <!-- Circular Progress Section -->
+                    <div class="print-progress-circle-wrap">
+                        <svg class="radial-progress-svg" viewBox="0 0 170 170">
+                            <defs>
+                                <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" stop-color="#4f46e5" />
+                                    <stop offset="100%" stop-color="#06b6d4" />
+                                </linearGradient>
+                            </defs>
+                            <circle class="radial-progress-bg" cx="85" cy="85" r="75"></circle>
+                            <circle class="radial-progress-bar" id="radialProgressBar" cx="85" cy="85" r="75"></circle>
+                        </svg>
+                        <div class="radial-progress-text">
+                            <span class="radial-percentage" id="progressPercentage">0%</span>
+                            <span class="radial-label">İlerleme</span>
+                        </div>
+                    </div>
+
+                    <!-- Active File Box -->
+                    <div class="file-info-box">
+                        <div class="file-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <line x1="16" y1="13" x2="8" y2="13"></line>
+                                <line x1="16" y1="17" x2="8" y2="17"></line>
+                                <polyline points="10 9 9 9 8 9"></polyline>
+                            </svg>
+                        </div>
+                        <div class="file-details">
+                            <div class="file-name-label">Aktif Dosya</div>
+                            <div class="file-name-val" id="currentFileName">-</div>
+                        </div>
+                    </div>
+
+                    <!-- Core Print Stats Grid -->
+                    <div class="status-grid">
+                        <div class="status-item">
+                            <span class="status-item-label">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                                </svg>
+                                Katman
+                            </span>
+                            <span class="status-item-value" id="currentLayer">0 / 0</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-item-label">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <polyline points="12 6 12 12 16 14"></polyline>
+                                </svg>
+                                Kalan Süre
+                            </span>
+                            <span class="status-item-value" id="estimatedETA">--:--</span>
+                        </div>
+                    </div>
+
+                    <!-- LED Controls -->
+                    <div class="led-panel-box">
+                        <div class="led-icon-group" id="ledStatusIconWrapper">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .6 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"></path>
+                                <line x1="9" y1="18" x2="15" y2="18"></line>
+                                <line x1="10" y1="22" x2="14" y2="22"></line>
+                            </svg>
+                            <div>
+                                <div style="font-size: 13px; font-weight: 600;">Kabin Aydınlatması</div>
+                                <div style="font-size: 11px; color: var(--text-secondary);" id="ledStatusText">Durum: Kapalı</div>
+                            </div>
+                        </div>
+                        <div class="led-btn-toggle">
+                            <div class="led-toggle-option" id="ledOptOff" onclick="sendLedCommand('off')">Kapat</div>
+                            <div class="led-toggle-option" id="ledOptOn" onclick="sendLedCommand('on')">Aç</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CAMERA STREAM CARD -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                                <circle cx="12" cy="13" r="4"></circle>
+                            </svg>
+                            Canlı Kamera Yayını
+                        </span>
+                        <div style="display: flex; gap: 6px;">
+                            <button class="macro-chip" style="border:1px solid var(--border-color); background:transparent; font-size:11px;" onclick="reloadCamera()">Yayını Yenile</button>
+                            <button id="cameraFullscreenBtn" class="macro-chip" style="border:1px solid var(--border-color); background:transparent; font-size:11px; display: inline-flex; align-items: center; gap: 4px;" onclick="toggleCameraFullscreen()">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                                </svg>
+                                Tam Ekran
+                            </button>
+                        </div>
+                    </div>
+                    <div class="camera-stream-container">
+                        <img src="http://{{ printer }}:8080/?action=stream" alt="Canlı Kamera Yayını" id="cameraImg" onerror="handleCameraError()">
+                        <div class="camera-fallback" id="cameraFallback">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 8px; color: var(--text-muted);">
+                                <path d="M1 1l22 22M21 16V8a2 2 0 0 0-2-2h-4l-2-3H9L8.13 4.3M3 8v11a2 2 0 0 0 2 2h14a2 2 0 0 0 1.25-.45"></path>
+                            </svg>
+                            <span>Kamera Yayını Yüklenemedi veya Çevrimdışı</span>
+                            <button class="btn btn-secondary" style="margin-top: 12px; padding: 6px 12px; font-size: 12px;" onclick="reloadCamera()">Yeniden Dene</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- IFS FILAMENT SYSTEM CARD -->
+                <div class="card" id="ifsCard">
+                    <div class="card-header">
+                        <span class="card-title">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                                <path d="M2 12h20"></path>
+                            </svg>
+                            Filament İstasyonu (IFS)
+                        </span>
+                        <span class="ip-badge" id="activeIfsSlotInfo">Aktif Slot: -</span>
+                    </div>
+                    
+                    <div class="ifs-slots-grid" id="ifsSlotsContainer" style="display: none;">
+                        <!-- Populate dynamically -->
+                    </div>
+
+                    <!-- Unconfigured Fallback -->
+                    <div class="camera-fallback" id="ifsUnconfiguredFallback" style="display: flex; position: static; height: auto; min-height: 120px; border-radius: var(--border-radius-md); border: 1px dashed var(--border-color); background: rgba(0,0,0,0.15); padding: 16px;">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--text-secondary); margin-bottom: 4px;">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="12"></line>
+                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                        </svg>
+                        <span id="ifsErrorTitle" style="font-size: 12px; font-weight: 500; text-align: center; color: var(--text-secondary);">
+                            IFS Filament Bilgisi Yapılandırılmadı
+                        </span>
+                        <p id="ifsErrorDesc" style="font-size: 10px; color: var(--text-muted); text-align: center; max-width: 280px; margin-top: 4px; line-height: 1.3;">
+                            Bu özelliği aktif etmek için Python uygulamasını başlatırken <code>FLASHFORGE_SERIAL</code> ve <code>FLASHFORGE_CHECK_CODE</code> çevre değişkenlerini tanımlayın.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT COLUMN: TEMPERATURES & ACTION CONTROLS -->
+            <div class="column-wrapper">
+                <!-- TEMPERATURE CARD -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 9v4"></path>
+                                <path d="M22 12A10 10 0 1 1 12 2a10 10 0 0 1 10 10z"></path>
+                            </svg>
+                            Sıcaklık Kontrol Paneli
+                        </span>
+                    </div>
+
+                    <!-- Temperature Dashboard (Nozzle T0 & Bed) -->
+                    <div class="temp-grid">
+                        <!-- NOZZLE T0 CARD -->
+                        <div class="temp-card nozzle">
+                            <div class="temp-card-header">
+                                <span class="temp-card-title">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"></path>
+                                    </svg>
+                                    Nozul (Ekstruder)
+                                </span>
+                            </div>
+                            <div class="temp-display">
+                                <span class="temp-value-current" id="nozzleTempCurr">0</span>
+                                <span class="temp-value-target" id="nozzleTempTarget">/ 0°C</span>
+                            </div>
+                            <div class="temp-bar-wrap">
+                                <div class="temp-bar-fill" id="nozzleTempBar"></div>
+                            </div>
+                            
+                            <!-- Manual Input -->
+                            <div class="temp-input-group">
+                                <input type="number" class="temp-input" id="nozzleTempInput" placeholder="Derece" min="0" max="300">
+                                <button class="temp-btn" onclick="setTemperature('nozzle')">Isıt</button>
+                            </div>
+                            
+                            <!-- Presets -->
+                            <div class="presets-grid">
+                                <button class="preset-btn" onclick="quickHeat('nozzle', 210)">210° (PLA)</button>
+                                <button class="preset-btn" onclick="quickHeat('nozzle', 240)">240° (PETG)</button>
+                                <button class="preset-btn" onclick="quickHeat('nozzle', 255)">255° (ABS)</button>
+                                <button class="preset-btn off" onclick="quickHeat('nozzle', 0)">Kapat</button>
+                            </div>
+                        </div>
+
+                        <!-- BED CARD -->
+                        <div class="temp-card bed">
+                            <div class="temp-card-header">
+                                <span class="temp-card-title">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M2 20h20M5 17h14M8 14h8"></path>
+                                        <path d="M12 4v6"></path>
+                                        <path d="m9 7 3-3 3 3"></path>
+                                    </svg>
+                                    Yapı Tablası
+                                </span>
+                            </div>
+                            <div class="temp-display">
+                                <span class="temp-value-current" id="bedTempCurr">0</span>
+                                <span class="temp-value-target" id="bedTempTarget">/ 0°C</span>
+                            </div>
+                            <div class="temp-bar-wrap">
+                                <div class="temp-bar-fill" id="bedTempBar"></div>
+                            </div>
+                            
+                            <!-- Manual Input -->
+                            <div class="temp-input-group">
+                                <input type="number" class="temp-input" id="bedTempInput" placeholder="Derece" min="0" max="110">
+                                <button class="temp-btn" onclick="setTemperature('bed')">Isıt</button>
+                            </div>
+                            
+                            <!-- Presets -->
+                            <div class="presets-grid">
+                                <button class="preset-btn" onclick="quickHeat('bed', 60)">60° (PLA)</button>
+                                <button class="preset-btn" onclick="quickHeat('bed', 80)">80° (PETG)</button>
+                                <button class="preset-btn" onclick="quickHeat('bed', 100)">100° (ABS)</button>
+                                <button class="preset-btn off" onclick="quickHeat('bed', 0)">Kapat</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FINE TUNING & OVERRIDES CARD -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="4" y1="21" x2="4" y2="14"></line>
+                                <line x1="4" y1="10" x2="4" y2="3"></line>
+                                <line x1="12" y1="21" x2="12" y2="12"></line>
+                                <line x1="12" y1="8" x2="12" y2="3"></line>
+                                <line x1="20" y1="21" x2="20" y2="16"></line>
+                                <line x1="20" y1="12" x2="20" y2="3"></line>
+                                <line x1="1" y1="14" x2="7" y2="14"></line>
+                                <line x1="9" y1="8" x2="15" y2="8"></line>
+                                <line x1="17" y1="16" x2="23" y2="16"></line>
+                            </svg>
+                            Baskı İnce Ayarları (Live Tuning)
+                        </span>
+                    </div>
+
+                    <div class="tuning-grid">
+                        <!-- Z-Offset Babystepping -->
+                        <div class="babystep-row">
+                            <div class="slider-label-group">
+                                <span class="slider-title">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="7 8 12 3 17 8"></polyline>
+                                        <polyline points="7 16 12 21 17 16"></polyline>
+                                        <line x1="12" y1="3" x2="12" y2="21"></line>
+                                    </svg>
+                                    Z-Ofset İnce Ayarı
+                                </span>
+                                <span class="slider-desc">Babystepping (Nozul yüksekliği)</span>
+                            </div>
+                            <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+                                <div class="tuning-btn-group">
+                                    <button class="tuning-btn" onclick="sendBabystep(-0.05)">-0.05</button>
+                                    <button class="tuning-btn" onclick="sendBabystep(-0.01)">-0.01</button>
+                                    <button class="tuning-btn" onclick="sendBabystep(0.01)">+0.01</button>
+                                    <button class="tuning-btn" onclick="sendBabystep(0.05)">+0.05</button>
+                                </div>
+                                <div style="font-size:11px; font-weight:600; color:var(--text-secondary)">
+                                    Net Değişim: <span id="valZOffset" style="font-family:'JetBrains Mono'; color:#ffffff;">0.00 mm</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Print Speed Override (M220) -->
+                        <div class="slider-row">
+                            <div class="slider-label-group">
+                                <span class="slider-title">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polygon points="11 19 2 12 11 5 11 19"></polygon>
+                                        <polygon points="22 19 13 12 22 5 22 19"></polygon>
+                                    </svg>
+                                    Baskı Hızı Çarpanı
+                                </span>
+                                <span class="slider-desc">Hız Değişimi (M220)</span>
+                            </div>
+                            <div class="slider-input-container">
+                                <input type="range" class="range-slider" id="speedSlider" min="50" max="200" step="5" value="100" onchange="applySpeedFactor(this.value)" oninput="updateSpeedLabel(this.value)">
+                                <span class="slider-val" id="valSpeedFactor">100%</span>
+                            </div>
+                        </div>
+
+                        <!-- Fan Speed Controller (M106) -->
+                        <div class="slider-row">
+                            <div class="slider-label-group">
+                                <span class="slider-title">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="m12 12-4-2c-1.8 1.8-1.8 4.7 0 6.5s4.7 1.8 6.5 0Z"></path>
+                                        <path d="m12 12 4 2c1.8-1.8 1.8-4.7 0-6.5s-4.7-1.8-6.5 0Z"></path>
+                                        <path d="m12 12-2 4c1.8 1.8 4.7 1.8 6.5 0s1.8-4.7 0-6.5Z"></path>
+                                        <path d="m12 12 2-4c-1.8-1.8-4.7-1.8-6.5 0s-1.8 4.7 0 6.5Z"></path>
+                                        <circle cx="12" cy="12" r="2"></circle>
+                                    </svg>
+                                    Soğutma Fanı Gücü
+                                </span>
+                                <span class="slider-desc">Model Fan Devri (M106)</span>
+                            </div>
+                            <div class="slider-input-container">
+                                <input type="range" class="range-slider" id="fanSlider" min="0" max="100" value="0" onchange="applyFanSpeed(this.value)" oninput="updateFanLabel(this.value)">
+                                <span class="slider-val" id="valFanSpeed">Kapalı</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CONTROLS & TERMINAL CARD -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                            </svg>
+                            Hareket & Komut Kontrolü
+                        </span>
+                    </div>
+
+                    <!-- Action Commands Sections -->
+                    <div class="controls-sections">
+                        <!-- Macro/Movement Controls -->
+                        <div class="controls-row">
+                            <span class="controls-section-title">Yazıcı Kontrolleri</span>
+                            <div class="buttons-flex">
+                                <button class="btn btn-primary" id="btnHome" onclick="triggerCommand('home')">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                                        <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                                    </svg>
+                                    Referans Noktası (Home)
+                                </button>
+                                <button class="btn btn-success" id="btnResume" onclick="triggerCommand('resume')">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                    </svg>
+                                    Devam Et
+                                </button>
+                                <button class="btn btn-warning" id="btnPause" onclick="triggerCommand('pause')">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="6" y="4" width="4" height="16"></rect>
+                                        <rect x="14" y="4" width="4" height="16"></rect>
+                                    </svg>
+                                    Duraklat
+                                </button>
+                                <button class="btn btn-danger" id="stopButton" onclick="triggerStopCommand()">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+                                    </svg>
+                                    <span id="stopBtnText">Yazdırmayı Durdur</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Interactive Axis Jog Section -->
+                        <div class="controls-row">
+                            <span class="controls-section-title">Manuel Hareket (Eksen Jog)</span>
+                            <div class="jog-container">
+                                <!-- X/Y Controller Pad -->
+                                <div class="jog-circle-pad">
+                                    <button class="jog-pad-btn y-plus" onclick="jogAxis('Y', 1)" title="Y ekseni + yönünde hareket">Y+</button>
+                                    <button class="jog-pad-btn x-minus" onclick="jogAxis('X', -1)" title="X ekseni - yönünde hareket">X-</button>
+                                    <button class="jog-pad-home" onclick="triggerCommand('home')" title="Tüm eksenleri sıfırla">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                                        </svg>
+                                    </button>
+                                    <button class="jog-pad-btn x-plus" onclick="jogAxis('X', 1)" title="X ekseni + yönünde hareket">X+</button>
+                                    <button class="jog-pad-btn y-minus" onclick="jogAxis('Y', -1)" title="Y ekseni - yönünde hareket">Y-</button>
+                                </div>
+
+                                <!-- Z Axis vertical controls -->
+                                <div class="jog-z-controls">
+                                    <span class="jog-z-label">Z Ekseni</span>
+                                    <button class="jog-z-btn" onclick="jogAxis('Z', 1)" title="Z ekseni yukarı">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <polyline points="18 15 12 9 6 15"></polyline>
+                                        </svg>
+                                        Z+
+                                    </button>
+                                    <button class="jog-z-btn" onclick="jogAxis('Z', -1)" title="Z ekseni aşağı">
+                                        Z-
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <polyline points="6 9 12 15 18 9"></polyline>
+                                        </svg>
+                                    </button>
+                                </div>
+
+                                <!-- Jog Steps Selector -->
+                                <div class="jog-settings">
+                                    <span style="font-size: 11px; color: var(--text-secondary); font-weight: 500;">Adım Mesafesi</span>
+                                    <div class="jog-step-selector">
+                                        <button class="jog-step-btn" onclick="selectStep(0.1)" id="step-0.1">0.1</button>
+                                        <button class="jog-step-btn selected" onclick="selectStep(1)" id="step-1">1</button>
+                                        <button class="jog-step-btn" onclick="selectStep(10)" id="step-10">10</button>
+                                        <button class="jog-step-btn" onclick="selectStep(50)" id="step-50">50</button>
+                                    </div>
+                                    <div style="font-size: 9.5px; color: var(--text-muted); margin-top: 4px; line-height: 1.3;">
+                                        * Hareket komutları yazıcı boşta iken çalıştırılmalıdır.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- G-Code Terminal Log & Sender -->
+                        <div class="controls-row">
+                            <span class="controls-section-title">G-Code Konsolu (Uçbirim)</span>
+                            <div class="terminal-wrap">
+                                <div class="terminal-log" id="terminalLog">
+                                    <div class="terminal-line system">[Sistem]: FlashForge AD5X terminal oturumu başlatıldı.</div>
+                                </div>
+                                <div class="terminal-input-row">
+                                    <input type="text" class="terminal-input" id="terminalInput" placeholder="G-kodu buraya yazın (Örn: M115)..." onkeydown="if(event.key==='Enter') sendConsoleCommand()">
+                                    <button class="temp-btn" id="btnSendConsole" onclick="sendConsoleCommand()">Gönder</button>
+                                </div>
+                                <div class="terminal-macros">
+                                    <span class="macro-chip" onclick="quickTerminalCmd('M115')">M115 (Bilgi)</span>
+                                    <span class="macro-chip" onclick="quickTerminalCmd('M119')">M119 (Durum)</span>
+                                    <span class="macro-chip" onclick="quickTerminalCmd('M503')">M503 (Ayarlar)</span>
+                                    <span class="macro-chip" style="margin-left:auto; color:var(--color-danger)" onclick="clearTerminal()">Temizle</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- FOOTER -->
+        <footer>
+            <span>Son Güncelleme: <span id="lastUpdatedAt" style="font-family: 'JetBrains Mono', monospace; font-weight: 500;">-</span></span>
+            <span>FlashForge AD5X Web Dashboard v2.0</span>
+        </footer>
+    </div>
+
+    <script>
+        let history = [];
+        let activeStepDistance = 1.0;
+        let isStopArmed = false;
+        let stopTimeoutId = null;
+        
+        // Fine tuning variables
+        let accumulatedZOffset = 0.0;
+
+        // Camera functions
+        function reloadCamera() {
+            const img = document.getElementById('cameraImg');
+            const fallback = document.getElementById('cameraFallback');
+            fallback.style.display = 'none';
+            img.style.display = 'block';
+            img.src = "http://{{ printer }}:8080/?action=stream&t=" + Date.now();
+            logConsole("Kamera yayını yenileniyor...", "system");
+        }
+
+        function handleCameraError() {
+            const img = document.getElementById('cameraImg');
+            const fallback = document.getElementById('cameraFallback');
+            img.style.display = 'none';
+            fallback.style.display = 'flex';
+            logConsole("Kamera yayını yüklenemedi. Bağlantı veya port hatası.", "error");
+        }
+
+        // Selection of Jog Steps
+        function selectStep(step) {
+            document.querySelectorAll('.jog-step-btn').forEach(btn => {
+                btn.classList.remove('selected');
+            });
+            document.getElementById('step-' + step).classList.add('selected');
+            activeStepDistance = step;
+            logConsole(`Hareket adımı ${step} mm olarak değiştirildi.`, 'system');
+        }
+
+        // Relative Jog movement sending
+        function jogAxis(axis, direction) {
+            const val = direction * activeStepDistance;
+            const gcode = `G91\nG1 ${axis}${val} F1800\nG90`;
+            logConsole(`Eksen Hareket: ${axis} ${val > 0 ? '+' : ''}${val}mm`, 'cmd');
+            
+            fetch('/api/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: 'custom', gcode: gcode })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    logConsole(`Cevap: ${data.response || 'ok'}`, 'system');
+                } else {
+                    logConsole(`Hata: ${data.error}`, 'error');
+                }
+            })
+            .catch(e => {
+                logConsole(`Bağlantı Hatası: ${e}`, 'error');
+            });
+        }
+
+        // Send generic preset/action commands
+        function triggerCommand(commandName) {
+            logConsole(`Komut gönderiliyor: ${commandName}`, 'cmd');
+            fetch('/api/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: commandName })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    logConsole(`Komut başarılı. Cevap: ${data.response || 'ok'}`, 'system');
+                } else {
+                    logConsole(`Hata: ${data.error}`, 'error');
+                }
+            })
+            .catch(e => {
+                logConsole(`Bağlantı Hatası: ${e}`, 'error');
+            });
+        }
+
+        // Double-click safety mechanism for STOP command
+        function triggerStopCommand() {
+            const stopBtn = document.getElementById('stopButton');
+            const stopText = document.getElementById('stopBtnText');
+            
+            if (!isStopArmed) {
+                isStopArmed = true;
+                stopBtn.classList.add('armed');
+                stopText.textContent = 'EMİN MİSİNİZ?';
+                logConsole('Yazdırmayı Durdur komutu silahlandırıldı! Onaylamak için tekrar tıklayın.', 'error');
+                
+                stopTimeoutId = setTimeout(() => {
+                    resetStopButton();
+                }, 4000);
+            } else {
+                clearTimeout(stopTimeoutId);
+                resetStopButton();
+                triggerCommand('stop');
+            }
+        }
+
+        function resetStopButton() {
+            isStopArmed = false;
+            const stopBtn = document.getElementById('stopButton');
+            const stopText = document.getElementById('stopBtnText');
+            stopBtn.classList.remove('armed');
+            stopText.textContent = 'Yazdırmayı Durdur';
+        }
+
+        // LED command handler
+        function sendLedCommand(state) {
+            const cmd = state === 'on' ? 'led_on' : 'led_off';
+            logConsole(`Kabin aydınlatması ayarlanıyor: ${state.toUpperCase()}`, 'cmd');
+            triggerCommand(cmd);
+        }
+
+        // Set custom temperature (Nozzle or Bed)
+        function setTemperature(type) {
+            const inputEl = document.getElementById(type === 'nozzle' ? 'nozzleTempInput' : 'bedTempInput');
+            const value = parseInt(inputEl.value);
+            if (Number.isNaN(value) || value < 0) {
+                alert('Geçerli bir sıcaklık değeri giriniz!');
+                return;
+            }
+            const gcode = type === 'nozzle' ? `M104 S${value}` : `M140 S${value}`;
+            logConsole(`${type === 'nozzle' ? 'Nozul' : 'Tabla'} hedef sıcaklığı ayarlanıyor: ${value}°C`, 'cmd');
+            
+            fetch('/api/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: 'custom', gcode: gcode })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    logConsole(`Sıcaklık ayarlandı.`, 'system');
+                    inputEl.value = '';
+                } else {
+                    logConsole(`Sıcaklık ayar hatası: ${data.error}`, 'error');
+                }
+            })
+            .catch(e => {
+                logConsole(`Bağlantı Hatası: ${e}`, 'error');
+            });
+        }
+
+        // Quick Temperature Presets
+        function quickHeat(type, temp) {
+            const inputEl = document.getElementById(type === 'nozzle' ? 'nozzleTempInput' : 'bedTempInput');
+            inputEl.value = temp;
+            setTemperature(type);
+        }
+
+        // Z-Offset Live Babystepping adjustment
+        function sendBabystep(value) {
+            // Send both Klipper (SET_GCODE_OFFSET) and Marlin (M290) commands for maximum compatibility
+            const gcode = `SET_GCODE_OFFSET Z_ADJUST=${value} MOVE=1\nM290 Z${value}`;
+            logConsole(`Z-Ofset Ayarlanıyor: ${value > 0 ? '+' : ''}${value}mm`, 'cmd');
+            
+            fetch('/api/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: 'custom', gcode: gcode })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    accumulatedZOffset = parseFloat((accumulatedZOffset + value).toFixed(3));
+                    document.getElementById('valZOffset').textContent = (accumulatedZOffset >= 0 ? '+' : '') + accumulatedZOffset.toFixed(2) + ' mm';
+                    logConsole(`Z-Ofset güncellendi.`, 'system');
+                } else {
+                    logConsole(`Z-Ofset hatası: ${data.error}`, 'error');
+                }
+            })
+            .catch(e => {
+                logConsole(`Bağlantı Hatası: ${e}`, 'error');
+            });
+        }
+
+        // Print Speed Factor (M220)
+        function updateSpeedLabel(val) {
+            document.getElementById('valSpeedFactor').textContent = val + '%';
+        }
+
+        function applySpeedFactor(val) {
+            const gcode = `M220 S${val}`;
+            logConsole(`Baskı hızı çarpanı ayarlanıyor: ${val}%`, 'cmd');
+            
+            fetch('/api/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: 'custom', gcode: gcode })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    logConsole(`Baskı hızı %${val} olarak güncellendi.`, 'system');
+                } else {
+                    logConsole(`Hız çarpanı ayarlama hatası: ${data.error}`, 'error');
+                }
+            })
+            .catch(e => {
+                logConsole(`Bağlantı Hatası: ${e}`, 'error');
+            });
+        }
+
+        // Fan Speed Overrides (M106)
+        function updateFanLabel(val) {
+            const num = parseInt(val);
+            if (num === 0) {
+                document.getElementById('valFanSpeed').textContent = 'Kapalı';
+            } else {
+                document.getElementById('valFanSpeed').textContent = num + '%';
+            }
+        }
+
+        function applyFanSpeed(val) {
+            const num = parseInt(val);
+            // Translate percentage (0-100) to M106 range (0-255)
+            const speedByte = Math.round(num * 2.55);
+            const gcode = `M106 S${speedByte}`;
+            logConsole(`Soğutma fanı gücü ayarlanıyor: %${num} (S${speedByte})`, 'cmd');
+            
+            fetch('/api/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: 'custom', gcode: gcode })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    logConsole(`Fan hızı %${num} yapıldı.`, 'system');
+                } else {
+                    logConsole(`Fan ayar hatası: ${data.error}`, 'error');
+                }
+            })
+            .catch(e => {
+                logConsole(`Bağlantı Hatası: ${e}`, 'error');
+            });
+        }
+
+        // Terminal Console output helper
+        function logConsole(message, type = 'system') {
+            const logBox = document.getElementById('terminalLog');
+            const now = new Date();
+            const timeStr = now.toTimeString().split(' ')[0];
+            
+            const line = document.createElement('div');
+            line.className = `terminal-line ${type}`;
+            
+            if (type === 'cmd') {
+                line.textContent = `> [${timeStr}] ${message}`;
+            } else if (type === 'error') {
+                line.textContent = `! [${timeStr}] ${message}`;
+            } else {
+                line.textContent = `[${timeStr}] ${message}`;
+            }
+            
+            logBox.appendChild(line);
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        // Send raw custom Gcode from Console
+        function sendConsoleCommand() {
+            const input = document.getElementById('terminalInput');
+            const gcode = input.value.trim();
+            if (!gcode) return;
+            
+            logConsole(gcode, 'cmd');
+            input.value = '';
+            
+            fetch('/api/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: 'custom', gcode: gcode })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    logConsole(`Yazıcı Cevabı:\n${data.response || 'ok'}`, 'system');
+                } else {
+                    logConsole(`Hata: ${data.error}`, 'error');
+                }
+            })
+            .catch(e => {
+                logConsole(`İstek Hatası: ${e}`, 'error');
+            });
+        }
+
+        function quickTerminalCmd(cmd) {
+            document.getElementById('terminalInput').value = cmd;
+            sendConsoleCommand();
+        }
+
+        function clearTerminal() {
+            const logBox = document.getElementById('terminalLog');
+            logBox.innerHTML = '<div class="terminal-line system">[Sistem]: Konsol geçmişi temizlendi.</div>';
+        }
+
+        // Helper: parse "current/target" from Flashforge response
+        function parseTempString(tempStr) {
+            if (!tempStr || tempStr === '-') return { current: 0, target: 0 };
+            const parts = tempStr.split('/');
+            if (parts.length === 2) {
+                return {
+                    current: parseFloat(parts[0]) || 0,
+                    target: parseFloat(parts[1]) || 0
+                };
+            }
+            return { current: parseFloat(tempStr) || 0, target: 0 };
+        }
+
+        // Format Seconds into friendly duration
+        function formatDuration(sec) {
+            if (!Number.isFinite(sec) || sec < 0) return '--:--';
+            const h = Math.floor(sec / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            const s = Math.floor(sec % 60);
+            if (h > 0) return `${h} sa ${m} dk`;
+            return `${m}:${String(s).padStart(2, '0')}`;
+        }
+
+        // Primary loop: polls the fastapi status endpoint
+        async function load() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                // Connection state
+                const dot = document.getElementById('systemStatusDot');
+                const statusTxt = document.getElementById('systemStatusText');
+                const errorBanner = document.getElementById('globalErrorBanner');
+                
+                const status = (data.machine_status || 'UNKNOWN').trim().toUpperCase();
+                
+                if (data.error) {
+                    dot.className = 'status-dot offline';
+                    statusTxt.textContent = 'SİSTEM HATASI';
+                    errorBanner.style.display = 'flex';
+                    document.getElementById('globalErrorText').textContent = 'Hata: ' + String(data.error);
+                } else {
+                    dot.className = 'status-dot online';
+                    statusTxt.textContent = status || 'BAĞLI';
+                    errorBanner.style.display = 'none';
+                }
+                
+                // General printer stats
+                document.getElementById('machineMode').textContent = data.move_mode || '-';
+                document.getElementById('currentFileName').textContent = data.current_file || 'Boşta';
+                document.getElementById('currentLayer').textContent = data.layer || '0 / 0';
+                document.getElementById('lastUpdatedAt').textContent = data.updated_at || '-';
+                
+                // Dynamic Button States based on machine_status
+                const isPrinting = status === 'BUILDING_FROM_SD' || status === 'BUILDING' || status === 'PRINTING';
+                const isPaused = status === 'PAUSED' || status === 'PAUSE' || status === 'PAUSING';
+                
+                // 1. Yazıcı Kontrol Butonları
+                const btnHome = document.getElementById('btnHome');
+                const btnResume = document.getElementById('btnResume');
+                const btnPause = document.getElementById('btnPause');
+                const btnStop = document.getElementById('stopButton');
+                
+                if (btnHome) btnHome.disabled = isPrinting || isPaused;
+                if (btnResume) btnResume.disabled = !isPaused;
+                if (btnPause) btnPause.disabled = !isPrinting;
+                if (btnStop) btnStop.disabled = !(isPrinting || isPaused);
+                
+                // 2. Manuel Hareket (Jog) ve Adım Seçim Butonları
+                const jogButtons = document.querySelectorAll('.jog-circle-pad button, .jog-z-controls button, .jog-step-btn');
+                jogButtons.forEach(btn => {
+                    btn.disabled = isPrinting || isPaused;
+                });
+                
+                // 3. IFS Filament İstasyonu Bilgisi
+                const ifsSlotsContainer = document.getElementById('ifsSlotsContainer');
+                const ifsUnconfigured = document.getElementById('ifsUnconfiguredFallback');
+                const activeIfsSlotInfo = document.getElementById('activeIfsSlotInfo');
+                
+                if (data.filament_info && data.filament_info.slotInfos) {
+                    ifsUnconfigured.style.display = 'none';
+                    ifsSlotsContainer.style.display = 'grid';
+                    
+                    const info = data.filament_info;
+                    const slots = info.slotInfos || [];
+                    const activeSlotId = info.currentLoadSlot !== undefined ? info.currentLoadSlot : info.currentSlot;
+                    
+                    if (activeSlotId !== undefined && activeSlotId > 0) {
+                        activeIfsSlotInfo.textContent = `Yüklü: Slot ${activeSlotId}`;
+                        activeIfsSlotInfo.style.color = 'var(--color-success)';
+                    } else {
+                        activeIfsSlotInfo.textContent = 'Yüklü: Yok';
+                        activeIfsSlotInfo.style.color = 'var(--text-secondary)';
+                    }
+                    
+                    // DOM güncellemesi
+                    let currentHtml = '';
+                    slots.sort((a, b) => a.slotId - b.slotId).forEach(slot => {
+                        const isActive = slot.slotId === activeSlotId;
+                        const hasFilament = slot.hasFilament;
+                        const matColor = slot.materialColor || '#6b7280';
+                        const matName = slot.materialName || 'PLA';
+                        
+                        let colorCircleHtml = '';
+                        if (hasFilament) {
+                            colorCircleHtml = `<div class="ifs-slot-color-circle" style="background-color: ${matColor};" title="Renk: ${matColor}"></div>`;
+                        } else {
+                            colorCircleHtml = `<div class="ifs-slot-color-circle empty"></div>`;
+                        }
+                        
+                        currentHtml += `
+                            <div class="ifs-slot-card ${isActive ? 'active' : ''}">
+                                <span class="ifs-slot-id">Slot ${slot.slotId}</span>
+                                ${colorCircleHtml}
+                                <span class="ifs-slot-material">${hasFilament ? matName : 'BOŞ'}</span>
+                                <span class="ifs-slot-status">${hasFilament ? 'Yüklü' : 'Filament Yok'}</span>
+                            </div>
+                        `;
+                    });
+                    
+                    if (ifsSlotsContainer.innerHTML !== currentHtml) {
+                        ifsSlotsContainer.innerHTML = currentHtml;
+                    }
+                } else {
+                    ifsSlotsContainer.style.display = 'none';
+                    ifsUnconfigured.style.display = 'flex';
+                    activeIfsSlotInfo.textContent = 'Aktif Slot: -';
+                    activeIfsSlotInfo.style.color = 'var(--text-secondary)';
+                    
+                    if (data.filament_info_error) {
+                        const errTitle = document.getElementById('ifsErrorTitle');
+                        const errDesc = document.getElementById('ifsErrorDesc');
+                        if (errTitle) errTitle.textContent = 'IFS Bağlantı Durumu';
+                        if (errDesc) {
+                            errDesc.innerHTML = `
+                                <div style="margin-top: 4px; padding: 6px 10px; border-radius: 6px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.15); text-align: left; font-size: 11px; max-width: 280px;">
+                                    <span style="font-weight: 600; color: var(--color-danger); display: block; margin-bottom: 2px;">Bağlantı Hatası:</span>
+                                    <code style="color: var(--color-danger); font-family: 'JetBrains Mono', monospace; word-break: break-all; white-space: pre-wrap;">${data.filament_info_error}</code>
+                                </div>
+                            `;
+                        }
+                    }
+                }
+                
+                // Progress calculations
+                const progressPct = typeof data.progress === 'number' ? data.progress : 0;
+                document.getElementById('progressPercentage').textContent = progressPct + '%';
+                
+                // Radial progress bar adjustment
+                const circ = 502;
+                const offset = circ - (progressPct * circ / 100);
+                document.getElementById('radialProgressBar').style.strokeDashoffset = offset;
+                
+                // Temperature cards parsing
+                const nozzleTemp = parseTempString(data.temperatures?.t0);
+                const bedTemp = parseTempString(data.temperatures?.bed);
+                
+                document.getElementById('nozzleTempCurr').textContent = nozzleTemp.current + '°C';
+                document.getElementById('nozzleTempTarget').textContent = '/ ' + nozzleTemp.target + '°C';
+                document.getElementById('bedTempCurr').textContent = bedTemp.current + '°C';
+                document.getElementById('bedTempTarget').textContent = '/ ' + bedTemp.target + '°C';
+                
+                // Progress bars for heating
+                const nozzleFillPct = Math.min(100, Math.max(0, (nozzleTemp.current / (nozzleTemp.target || 250)) * 100));
+                const bedFillPct = Math.min(100, Math.max(0, (bedTemp.current / (bedTemp.target || 80)) * 100));
+                
+                document.getElementById('nozzleTempBar').style.width = nozzleFillPct + '%';
+                document.getElementById('bedTempBar').style.width = bedFillPct + '%';
+                
+                // LED lighting status representation
+                const rawLed = String(data.led ?? '').toLowerCase();
+                const isLedOn = rawLed.includes('1') || rawLed.includes('on') || rawLed.includes('255');
+                const ledTextEl = document.getElementById('ledStatusText');
+                const ledIconWrap = document.getElementById('ledStatusIconWrapper');
+                
+                if (isLedOn) {
+                    ledTextEl.textContent = 'Durum: Açık (' + data.led + ')';
+                    ledIconWrap.classList.add('active');
+                    document.getElementById('ledOptOn').classList.add('active');
+                    document.getElementById('ledOptOff').classList.remove('active');
+                } else {
+                    ledTextEl.textContent = 'Durum: Kapalı';
+                    ledIconWrap.classList.remove('active');
+                    document.getElementById('ledOptOff').classList.add('active');
+                    document.getElementById('ledOptOn').classList.remove('active');
+                }
+
+                // Rolling ETA estimator
+                const etaEl = document.getElementById('estimatedETA');
+                const layerText = (data.layer || '').trim();
+                const currentLayer = layerText.includes('/') ? parseInt(layerText.split('/')[0]) : NaN;
+                const totalLayer = layerText.includes('/') ? parseInt(layerText.split('/')[1]) : NaN;
+                
+                if (Number.isFinite(currentLayer) && Number.isFinite(totalLayer) && totalLayer > 0 && progressPct > 0) {
+                    history.push({ ts: Date.now(), pct: progressPct });
+                    if (history.length > 30) history.shift();
+                    
+                    const elapsed = (Date.now() - (history[0]?.ts || Date.now())) / 1000;
+                    const delta = ((history[history.length - 1]?.pct || progressPct) - (history[0]?.pct || progressPct));
+                    
+                    if (delta > 0 && elapsed > 0) {
+                        const pctPerSec = delta / elapsed;
+                        const remainingPct = 100 - progressPct;
+                        const secondsLeft = remainingPct / pctPerSec;
+                        etaEl.textContent = formatDuration(secondsLeft);
+                    } else {
+                        etaEl.textContent = 'Hesaplanıyor...';
+                    }
+                } else {
+                    history = [];
+                    etaEl.textContent = 'Aktif iş yok';
+                }
+
+                // Sync Live Tuning settings from API (only if user is not currently adjusting them)
+                if (data.z_offset !== undefined) {
+                    accumulatedZOffset = data.z_offset;
+                    document.getElementById('valZOffset').textContent = (accumulatedZOffset >= 0 ? '+' : '') + accumulatedZOffset.toFixed(2) + ' mm';
+                }
+                if (data.speed_factor !== undefined) {
+                    const speedSlider = document.getElementById('speedSlider');
+                    if (document.activeElement !== speedSlider) {
+                        speedSlider.value = data.speed_factor;
+                        document.getElementById('valSpeedFactor').textContent = data.speed_factor + '%';
+                    }
+                }
+                if (data.fan_speed !== undefined) {
+                    const fanSlider = document.getElementById('fanSlider');
+                    if (document.activeElement !== fanSlider) {
+                        fanSlider.value = data.fan_speed;
+                        updateFanLabel(data.fan_speed);
+                    }
+                }
+            } catch (error) {
+                console.error('API load error:', error);
+                document.getElementById('systemStatusDot').className = 'status-dot offline';
+                document.getElementById('systemStatusText').textContent = 'KOPUK';
+                document.getElementById('globalErrorBanner').style.display = 'flex';
+                document.getElementById('globalErrorText').textContent = 'Sunucuyla iletişim kurulamadı. Python API çalışıyor mu?';
+            }
+        }
+
+        // Initial trigger and set loop
+        load();
+        setInterval(load, 2000);
+
+        // Settings Modal Management
+        function openSettingsModal() {
+            fetch('/api/settings')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('settingsHost').value = data.host || '';
+                document.getElementById('settingsPort').value = data.port || 8899;
+                document.getElementById('settingsSerial').value = data.serial || '';
+                document.getElementById('settingsCheckCode').value = data.check_code || '';
+                
+                // TCP Diagnostics
+                const tcpDot = document.getElementById('debugTcpDot');
+                const tcpTxt = document.getElementById('debugTcpText');
+                const tcpErr = document.getElementById('debugTcpErrorMsg');
+                if (data.tcp_error) {
+                    tcpDot.className = 'indicator-dot err';
+                    tcpTxt.textContent = 'Bağlantı Hatası';
+                    tcpTxt.style.color = 'var(--color-danger)';
+                    tcpErr.style.display = 'block';
+                    tcpErr.textContent = data.tcp_error;
+                } else {
+                    tcpDot.className = 'indicator-dot ok';
+                    tcpTxt.textContent = 'Bağlı (Başarılı)';
+                    tcpTxt.style.color = 'var(--color-success)';
+                    tcpErr.style.display = 'none';
+                }
+                
+                // IFS Diagnostics
+                const ifsDot = document.getElementById('debugIfsDot');
+                const ifsTxt = document.getElementById('debugIfsText');
+                const ifsErr = document.getElementById('debugIfsErrorMsg');
+                
+                if (!data.serial || !data.check_code) {
+                    ifsDot.className = 'indicator-dot err';
+                    ifsTxt.textContent = 'Yapılandırılmadı';
+                    ifsTxt.style.color = 'var(--text-muted)';
+                    ifsErr.style.display = 'block';
+                    ifsErr.textContent = 'Seri No ve LAN Code boş olduğundan IFS takibi pasif.';
+                } else if (data.ifs_error) {
+                    ifsDot.className = 'indicator-dot err';
+                    ifsTxt.textContent = 'Bağlantı Hatası';
+                    ifsTxt.style.color = 'var(--color-danger)';
+                    ifsErr.style.display = 'block';
+                    ifsErr.textContent = data.ifs_error;
+                } else {
+                    ifsDot.className = 'indicator-dot ok';
+                    ifsTxt.textContent = 'Bağlı (Başarılı)';
+                    ifsTxt.style.color = 'var(--color-success)';
+                    ifsErr.style.display = 'none';
+                }
+                
+                document.getElementById('settingsModal').style.display = 'flex';
+            })
+            .catch(e => {
+                alert('Ayarlar sunucudan alınamadı: ' + e);
+            });
+        }
+
+        function closeSettingsModal() {
+            document.getElementById('settingsModal').style.display = 'none';
+        }
+
+        function saveSettings() {
+            const host = document.getElementById('settingsHost').value.trim();
+            const port = parseInt(document.getElementById('settingsPort').value);
+            const serial = document.getElementById('settingsSerial').value.trim();
+            const check_code = document.getElementById('settingsCheckCode').value.trim();
+            
+            if (!host || Number.isNaN(port)) {
+                alert('Lütfen en azından Yazıcı IP ve Port kısımlarını doldurun.');
+                return;
+            }
+            
+            fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ host, port, serial, check_code })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    closeSettingsModal();
+                    logConsole('Sistem ayarları güncellendi, yeni ayarlar uygulanıyor...', 'system');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 800);
+                } else {
+                    alert('Ayarlar kaydedilirken sunucu tarafında bir hata oluştu.');
+                }
+            })
+            .catch(e => {
+                alert('Bağlantı isteği gönderilemedi: ' + e);
+            });
+        }
+
+        // Fullscreen Toggle for Preview Camera
+        function toggleCameraFullscreen() {
+            const container = document.querySelector('.camera-stream-container');
+            if (!container) return;
+            if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.msFullscreenElement) {
+                if (container.requestFullscreen) {
+                    container.requestFullscreen();
+                } else if (container.webkitRequestFullscreen) {
+                    container.webkitRequestFullscreen();
+                } else if (container.msRequestFullscreen) {
+                    container.msRequestFullscreen();
+                }
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) {
+                    document.webkitExitFullscreen();
+                } else if (document.msExitFullscreen) {
+                    document.msExitFullscreen();
+                }
+            }
+        }
+
+        function updateFullscreenButton() {
+            const btn = document.getElementById('cameraFullscreenBtn');
+            if (!btn) return;
+            const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement;
+            if (isFullscreen) {
+                btn.innerHTML = `
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M4 14h6v6m10-10h-6V4m0 6l6-6M10 14l-6 6"/>
+                    </svg>
+                    Küçült
+                `;
+            } else {
+                btn.innerHTML = `
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                    </svg>
+                    Tam Ekran
+                `;
+            }
+        }
+
+        document.addEventListener('fullscreenchange', updateFullscreenButton);
+        document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+        document.addEventListener('msfullscreenchange', updateFullscreenButton);
+    </script>
+
+    <!-- SETTINGS MODAL OVERLAY -->
+    <div class="modal-overlay" id="settingsModal">
+        <div class="modal-window">
+            <div class="modal-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+                Yazıcı Bağlantı Ayarları
+            </div>
+            
+            <div class="modal-body">
+                <!-- IP Address -->
+                <div class="form-group">
+                    <label class="form-label" for="settingsHost">Yazıcı IP Adresi (FLASHFORGE_HOST)</label>
+                    <input type="text" class="form-input" id="settingsHost" placeholder="Örn: 192.168.1.12">
+                </div>
+                
+                <!-- TCP Port -->
+                <div class="form-group">
+                    <label class="form-label" for="settingsPort">TCP Portu (FLASHFORGE_PORT)</label>
+                    <input type="number" class="form-input" id="settingsPort" placeholder="Örn: 8899" value="8899">
+                </div>
+                
+                <!-- Serial Number -->
+                <div class="form-group">
+                    <label class="form-label" for="settingsSerial">Yazıcı Seri Numarası (FLASHFORGE_SERIAL) [IFS İçin]</label>
+                    <input type="text" class="form-input" id="settingsSerial" placeholder="Örn: FFAD5M...">
+                </div>
+                
+                <!-- Check Code -->
+                <div class="form-group">
+                    <label class="form-label" for="settingsCheckCode">LAN Modu Şifresi (FLASHFORGE_CHECK_CODE) [IFS İçin]</label>
+                    <input type="password" class="form-input" id="settingsCheckCode" placeholder="LAN modundaki 8 haneli kod">
+                </div>
+
+                <!-- Connection Debugging section -->
+                <div class="status-debug-section">
+                    <span style="font-weight: 600; font-size: 11px; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 2px; display: block; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 4px;">Bağlantı Teşhisi (Real-time Diagnostic)</span>
+                    
+                    <!-- TCP State -->
+                    <div class="debug-row">
+                        <span>TCP Kontrol Bağlantısı (Port 8899):</span>
+                        <div class="debug-indicator">
+                            <div class="indicator-dot" id="debugTcpDot"></div>
+                            <span id="debugTcpText">-</span>
+                        </div>
+                    </div>
+                    <div class="debug-error-msg" id="debugTcpErrorMsg" style="display: none;"></div>
+                    
+                    <!-- IFS State -->
+                    <div class="debug-row" style="margin-top: 4px;">
+                        <span>IFS HTTP REST Bağlantısı (Port 8898):</span>
+                        <div class="debug-indicator">
+                            <div class="indicator-dot" id="debugIfsDot"></div>
+                            <span id="debugIfsText">-</span>
+                        </div>
+                    </div>
+                    <div class="debug-error-msg" id="debugIfsErrorMsg" style="display: none;"></div>
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeSettingsModal()">İptal</button>
+                <button class="btn btn-primary" onclick="saveSettings()">Ayarları Kaydet</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
