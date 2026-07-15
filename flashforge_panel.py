@@ -124,6 +124,25 @@ last_status = {
     "speed_factor": 100,
     "fan_speed": 0,
     "z_offset": 0.0,
+    # HTTP detail API values
+    "chamber_temp": 0.0,
+    "chamber_target_temp": 0.0,
+    "chamber_fan_speed": 0,
+    "cooling_fan_speed": 0,
+    "cooling_fan_left_speed": 0,
+    "door_status": "unknown",
+    "light_status": "unknown",
+    "firmware_version": "",
+    "cumulative_print_time": 0,
+    "cumulative_filament": 0.0,
+    "remaining_disk_space": 0.0,
+    "estimated_time": 0.0,
+    "nozzle_model": "",
+    "tvoc": 0,
+    "z_axis_compensation": 0.0,
+    "ip_addr": "",
+    "mac_addr": "",
+    "detail_raw": {},
 }
 
 # Load configuration on module import (called after last_status is defined)
@@ -254,11 +273,21 @@ def _fetch_http_detail_sync(host, serial, check_code):
     import urllib.request
     import json
     url = f"http://{host}:8898/detail"
+    
+    # Send credentials in both body and headers to support different firmware versions
+    payload = {
+        "serialNumber": serial,
+        "serialNo": serial,
+        "checkCode": check_code
+    }
+    data = json.dumps(payload).encode("utf-8")
+    
     req = urllib.request.Request(
         url,
-        data=b"{}",
+        data=data,
         headers={
             "serialNumber": serial,
+            "serialNo": serial,
             "checkCode": check_code,
             "Content-Type": "application/json"
         },
@@ -282,6 +311,7 @@ async def refresh_once():
 
     filament_info = None
     filament_info_error = None
+    detail_dict = {}
     if not PRINTER_SERIAL or not PRINTER_CHECK_CODE:
         filament_info_error = "Çevre değişkenleri eksik. Lütfen FLASHFORGE_SERIAL ve FLASHFORGE_CHECK_CODE değişkenlerini tanımlayın."
     else:
@@ -290,7 +320,14 @@ async def refresh_once():
             detail_data = await loop.run_in_executor(
                 None, _fetch_http_detail_sync, PRINTER_HOST, PRINTER_SERIAL, PRINTER_CHECK_CODE
             )
-            filament_info = detail_data.get("matlStationInfo")
+            
+            if isinstance(detail_data, dict):
+                if "detail" in detail_data and isinstance(detail_data["detail"], dict):
+                    detail_dict = detail_data["detail"]
+                else:
+                    detail_dict = detail_data
+            
+            filament_info = detail_dict.get("matlStationInfo")
             
             # Save raw payload to detail_debug.json for inspection
             debug_file = os.path.join(BASE_DIR, "detail_debug.json")
@@ -301,12 +338,22 @@ async def refresh_once():
                 print(f"Error saving detail_debug.json: {e}")
                 
             if not filament_info:
-                code_val = detail_data.get("code")
-                msg_val = detail_data.get("message")
-                if code_val is not None or msg_val is not None:
-                    filament_info_error = f"Yazıcı Hata Döndürdü - Kod: {code_val}, Mesaj: {msg_val}"
+                code_val = detail_data.get("code") if isinstance(detail_data, dict) else None
+                msg_val = detail_data.get("message") if isinstance(detail_data, dict) else None
+                keys_found = list(detail_data.keys()) if isinstance(detail_data, dict) else []
+                
+                if isinstance(detail_data, dict) and ("code" in detail_data or "message" in detail_data):
+                    is_auth_error = (
+                        code_val in [401, -1] or 
+                        (isinstance(msg_val, str) and any(x in msg_val.lower() for x in ["auth", "parameter"]))
+                    )
+                    if is_auth_error:
+                        filament_info_error = f"Kimlik Doğrulama Hatası (Kod: {code_val}, Mesaj: {msg_val}). Lütfen Seri Numarasını ve LAN Kodunu (Ayarlar -> LAN Şifresi) kontrol edin."
+                    elif code_val in [0, 200] or (isinstance(msg_val, str) and msg_val.lower() in ["ok", "success"]):
+                        filament_info_error = f"Bağlantı başarılı fakat filament istasyonu bilgisi (matlStationInfo) bulunamadı. Yazıcınız standart Adventurer 5M (non-Pro) olabilir veya filament istasyonu (IFS) bağlı/etkin olmayabilir."
+                    else:
+                        filament_info_error = f"Yazıcı Hata Döndürdü - Kod: {code_val}, Mesaj: {msg_val}"
                 else:
-                    keys_found = list(detail_data.keys())
                     filament_info_error = f"HTTP bağlantısı başarılı fakat 'matlStationInfo' bulunamadı. Mevcut anahtarlar: {keys_found}"
         except Exception as e:
             err_str = str(e)
@@ -332,6 +379,25 @@ async def refresh_once():
         "error": None if "ERR:" not in m119_text and "ERR:" not in m27_text else m119_text,
         "filament_info": filament_info,
         "filament_info_error": filament_info_error,
+        # HTTP detail API values
+        "chamber_temp": detail_dict.get("chamberTemp", 0.0),
+        "chamber_target_temp": detail_dict.get("chamberTargetTemp", 0.0),
+        "chamber_fan_speed": detail_dict.get("chamberFanSpeed", 0),
+        "cooling_fan_speed": detail_dict.get("coolingFanSpeed", 0),
+        "cooling_fan_left_speed": detail_dict.get("coolingFanLeftSpeed", 0),
+        "door_status": detail_dict.get("doorStatus", "unknown"),
+        "light_status": detail_dict.get("lightStatus", "unknown"),
+        "firmware_version": detail_dict.get("firmwareVersion", ""),
+        "cumulative_print_time": detail_dict.get("cumulativePrintTime", 0),
+        "cumulative_filament": detail_dict.get("cumulativeFilament", 0.0),
+        "remaining_disk_space": detail_dict.get("remainingDiskSpace", 0.0),
+        "estimated_time": detail_dict.get("estimatedTime", 0.0),
+        "nozzle_model": detail_dict.get("nozzleModel", ""),
+        "tvoc": detail_dict.get("tvoc", 0),
+        "z_axis_compensation": detail_dict.get("zAxisCompensation", 0.0),
+        "ip_addr": detail_dict.get("ipAddr", ""),
+        "mac_addr": detail_dict.get("macAddr", ""),
+        "detail_raw": detail_dict,
         "debug_env": {
             "serial_set": bool(PRINTER_SERIAL),
             "check_code_set": bool(PRINTER_CHECK_CODE),
@@ -480,6 +546,66 @@ async def api_command(command: dict):
         
     text = raw.decode("utf-8", errors="ignore") if isinstance(raw, bytes) else str(raw)
     return JSONResponse({"ok": True, "response": text.strip()})
+
+
+def _upload_gcode_sync(host, serial, check_code, filename, file_bytes, print_now=False):
+    import urllib.request
+    url = f"http://{host}:8898/uploadGcode"
+    
+    boundary = "----WebKitFormBoundaryFlashForgeAD5X"
+    body = bytearray()
+    body.extend(f"--{boundary}\r\n".encode('utf-8'))
+    body.extend(f'Content-Disposition: form-data; name="gcodeFile"; filename="{filename}"\r\n'.encode('utf-8'))
+    body.extend(b"Content-Type: application/octet-stream\r\n\r\n")
+    body.extend(file_bytes)
+    body.extend(b"\r\n")
+    body.extend(f"--{boundary}--\r\n".encode('utf-8'))
+    
+    content_type = f"multipart/form-data; boundary={boundary}"
+    
+    headers = {
+        "serialNumber": serial,
+        "serialNo": serial,
+        "checkCode": check_code,
+        "fileSize": str(len(file_bytes)),
+        "printNow": "true" if print_now else "false",
+        "Content-Type": content_type
+    }
+    
+    req = urllib.request.Request(
+        url,
+        data=bytes(body),
+        headers=headers,
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=60) as response:
+        return json.loads(response.read().decode())
+
+
+@app.post("/api/upload")
+async def api_upload(request: Request, filename: str, print_now: bool = False):
+    if not PRINTER_SERIAL or not PRINTER_CHECK_CODE:
+        return JSONResponse({"ok": False, "error": "Seri Numarası veya LAN Kodu ayarlanmamış"}, status_code=400)
+    
+    try:
+        file_bytes = await request.body()
+        if not file_bytes:
+            return JSONResponse({"ok": False, "error": "Dosya içeriği boş"}, status_code=400)
+            
+        loop = asyncio.get_event_loop()
+        res = await loop.run_in_executor(
+            None, _upload_gcode_sync, PRINTER_HOST, PRINTER_SERIAL, PRINTER_CHECK_CODE, filename, file_bytes, print_now
+        )
+        
+        code_val = res.get("code")
+        msg_val = res.get("message")
+        if code_val == 0 or code_val == 200 or msg_val == "success":
+            return {"ok": True, "message": "Dosya başarıyla yüklendi" + (" ve baskı başlatıldı." if print_now else ".")}
+        else:
+            return JSONResponse({"ok": False, "error": f"Yazıcı hata döndürdü - Kod: {code_val}, Mesaj: {msg_val}"}, status_code=500)
+            
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"Bağlantı hatası: {str(e)}"}, status_code=500)
 
 
 class SettingsModel(BaseModel):

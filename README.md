@@ -24,8 +24,8 @@ flashforge/
 │       ├── const.py         # Sabitler (Domain, scan interval vb.)
 │       ├── config_flow.py   # HA Arayüzünden kurulum akışı (IP, port, LAN şifresi vb.)
 │       ├── manifest.json    # HA entegrasyon özellikleri ve bağımlılıkları
-│       ├── sensor.py        # Sıcaklık, katman, ilerleme ve filament slot sensörleri
-│       ├── light.py         # Kabin aydınlatma kontrolü
+│       ├── sensor.py        # Sıcaklık (nozul, yatak, hazne), katman, ilerleme, filament slotları, TVOC, disk alanı ve donanım sensörleri
+│       ├── light.py         # Kabin aydınlatma kontrolü (HTTP ve TCP tabanlı)
 │       ├── button.py        # Home, Duraklat, Devam Et, Durdur butonları
 │       └── strings.json     # Çeviri tanımları
 └── README.md                # Bu belgeleme dosyası
@@ -52,6 +52,11 @@ Yazıcının 8080 portundaki canlı kamera akışı arayüzde 16:9 oranında gö
 
 ### 5. Akıllı IFS (Filament İstasyonu) Teşhisi
 Eğer yazıcı **Adventurer 5M Pro** ise HTTP portu (8898) üzerinden IFS (Integrated Filament System) 4-slot bilgileri çekilir. Yazıcının standart **Adventurer 5M** olması veya LAN modunun kapalı olması durumunda oluşan `Connection refused (Errno 111)` hatası yakalanarak kullanıcıya yönlendirici ve anlaşılır bir hata açıklaması sunulur.
+
+### 6. Detaylı Donanım ve Çevre Durumu Takibi (HTTP 8898 /detail API)
+Yazıcının `/detail` REST API'sinden gelen tüm zengin donanım ve çevre verileri çözümlenmiştir:
+* **Backend & Panel Çözümü:** Web arayüzüne **Sistem & Donanım Bilgileri** kartı eklenerek; Hazne Sıcaklığı (anlık/hedef), TVOC Hava Kalitesi, Sol/Sağ Soğutma Fanları, Odacık Fanı, Kapı/Kasa Işığı durumları, Disk Alanı, Toplam Çalışma Süresi, Toplam Filament Tüketimi, Nozul Çapı ve IP/MAC bilgileri gerçek zamanlı olarak izlenebilir hale getirilmiştir.
+* **Home Assistant Çözümü:** Entegrasyona **14 adet yeni sensör** eklenerek bu veriler akıllı ev otomasyonlarında kullanılabilir hale getirilmiştir (örneğin hava kalitesi TVOC yükseldiğinde havalandırmanın çalıştırılması veya hazne sıcaklığına göre bildirim gönderilmesi). Kasa LED ışığının açık/kapalı durumu da HTTP API `light_status` ile senkronize edilmiştir.
 
 ---
 

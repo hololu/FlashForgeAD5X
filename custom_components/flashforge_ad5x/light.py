@@ -46,6 +46,10 @@ class FlashForgeLEDLight(FlashForgeBaseEntity, LightEntity):
         if not self.coordinator.data:
             return False
         
+        light_status = self.coordinator.data.get("light_status")
+        if light_status in ["open", "close"]:
+            return light_status == "open"
+
         raw_led = str(self.coordinator.data.get("led", "")).lower()
         # LED açık durumları: 1, on, 255
         return any(x in raw_led for x in ["1", "on", "255"])

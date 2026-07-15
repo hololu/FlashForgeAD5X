@@ -1659,6 +1659,113 @@
                         </p>
                     </div>
                 </div>
+
+                <!-- SYSTEM DETAILS & HARDWARE STATUS CARD -->
+                <div class="card" id="hardwareDetailsCard">
+                    <div class="card-header">
+                        <span class="card-title">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+                                <rect x="9" y="9" width="6" height="6"></rect>
+                                <line x1="9" y1="1" x2="9" y2="4"></line>
+                                <line x1="15" y1="1" x2="15" y2="4"></line>
+                                <line x1="9" y1="20" x2="9" y2="23"></line>
+                                <line x1="15" y1="20" x2="15" y2="23"></line>
+                                <line x1="20" y1="9" x2="23" y2="9"></line>
+                                <line x1="20" y1="15" x2="23" y2="15"></line>
+                                <line x1="1" y1="9" x2="4" y2="9"></line>
+                                <line x1="1" y1="15" x2="4" y2="15"></line>
+                            </svg>
+                            Sistem & Donanım Bilgileri
+                        </span>
+                        <span class="ip-badge" id="firmwareVersionBadge" style="font-size: 11px;">v-.-.-</span>
+                    </div>
+                    
+                    <div class="hardware-info-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <!-- Chamber Temp -->
+                        <div class="hw-item" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: var(--border-radius-md); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"></path></svg>
+                                Hazne Sıcaklığı
+                            </span>
+                            <span style="font-size: 14px; font-weight: 600;" id="hwChamberTemp">0°C / 0°C</span>
+                        </div>
+                        
+                        <!-- TVOC Air Quality -->
+                        <div class="hw-item" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: var(--border-radius-md); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                                Hava Kalitesi (TVOC)
+                            </span>
+                            <span style="font-size: 14px; font-weight: 600;" id="hwTvoc">0 ppb</span>
+                        </div>
+
+                        <!-- Cooling Fans -->
+                        <div class="hw-item" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: var(--border-radius-md); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 12-4-2c-1.8 1.8-1.8 4.7 0 6.5s4.7 1.8 6.5 0Z"></path><circle cx="12" cy="12" r="2"></circle></svg>
+                                Soğutma Fanları (Sol / Sağ)
+                            </span>
+                            <span style="font-size: 14px; font-weight: 600;" id="hwFanSpeeds">0% / 0%</span>
+                        </div>
+
+                        <!-- Chamber Fan -->
+                        <div class="hw-item" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: var(--border-radius-md); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 12-4-2c-1.8 1.8-1.8 4.7 0 6.5s4.7 1.8 6.5 0Z"></path><circle cx="12" cy="12" r="2"></circle></svg>
+                                Odacık Fan Hızı
+                            </span>
+                            <span style="font-size: 14px; font-weight: 600;" id="hwChamberFan">0%</span>
+                        </div>
+
+                        <!-- Door and Light -->
+                        <div class="hw-item" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: var(--border-radius-md); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3zM9 3v18"></path></svg>
+                                Kapı / Kasa Işığı
+                            </span>
+                            <span style="font-size: 14px; font-weight: 600;" id="hwDoorLight">Kapalı / Kapalı</span>
+                        </div>
+
+                        <!-- Disk Space -->
+                        <div class="hw-item" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: var(--border-radius-md); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+                                Kalan Disk Alanı
+                            </span>
+                            <span style="font-size: 14px; font-weight: 600;" id="hwStorage">- GB</span>
+                        </div>
+
+                        <!-- Cumulative Print Time -->
+                        <div class="hw-item" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: var(--border-radius-md); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                                Toplam Çalışma Süresi
+                            </span>
+                            <span style="font-size: 14px; font-weight: 600;" id="hwTotalTime">- sa</span>
+                        </div>
+
+                        <!-- Cumulative Filament Usage -->
+                        <div class="hw-item" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: var(--border-radius-md); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px;">
+                            <span style="font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+                                Toplam Filament Tüketimi
+                            </span>
+                            <span style="font-size: 14px; font-weight: 600;" id="hwTotalFilament">- m</span>
+                        </div>
+                    </div>
+
+                    <div style="font-size: 11px; color: var(--text-muted); display: flex; flex-direction: column; gap: 4px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.05);">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>Nozul Çapı / Tipi:</span>
+                            <span style="font-weight: 500; color: var(--text-secondary);" id="hwNozzleModel">-</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>IP / MAC Adresi:</span>
+                            <span style="font-weight: 500; color: var(--text-secondary);" id="hwIpMac">-</span>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- RIGHT COLUMN: TEMPERATURES & ACTION CONTROLS -->
@@ -1927,6 +2034,46 @@
                                         * Hareket komutları yazıcı boşta iken çalıştırılmalıdır.
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+
+                        <!-- G-Code Dosya Yükleme & Yazdırma -->
+                        <div class="controls-row">
+                            <span class="controls-section-title">LAN Üzerinden Dosya Gönderimi</span>
+                            <div class="upload-container" style="background: rgba(255,255,255,0.02); border: 1px dashed var(--border-color); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <input type="file" id="gcodeFileInput" accept=".gcode,.3mf" style="display: none;" onchange="handleFileSelected(this)">
+                                        <button class="btn btn-secondary" onclick="document.getElementById('gcodeFileInput').click()" style="padding: 8px 16px; font-size: 13px;">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: middle;">
+                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                                <polyline points="17 8 12 3 7 8"></polyline>
+                                                <line x1="12" y1="3" x2="12" y2="15"></line>
+                                            </svg>
+                                            Dosya Seç (.gcode, .3mf)
+                                        </button>
+                                        <span id="selectedFileName" style="font-size: 12px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">Dosya seçilmedi</span>
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 16px;">
+                                        <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; user-select: none; color: var(--text-main);">
+                                            <input type="checkbox" id="printNowCheckbox" checked style="accent-color: var(--color-primary); cursor: pointer;">
+                                            Yüklendiğinde Baskıyı Başlat (printNow)
+                                        </label>
+                                        <button class="btn btn-primary" id="btnUploadFile" onclick="uploadGcodeFile()" disabled style="padding: 8px 20px; font-size: 13px;">
+                                            Gönder
+                                        </button>
+                                    </div>
+                                </div>
+                                <div id="uploadProgressContainer" style="display: none;">
+                                    <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px; color: var(--text-secondary);">
+                                        <span id="uploadStatusText">Yükleniyor...</span>
+                                        <span id="uploadPercentText">0%</span>
+                                    </div>
+                                    <div style="background: rgba(255,255,255,0.05); height: 6px; border-radius: 3px; overflow: hidden;">
+                                        <div id="uploadProgressBar" style="width: 0%; height: 100%; background: var(--color-primary); transition: width 0.1s ease;"></div>
+                                    </div>
+                                </div>
+                                <div id="uploadResultMsg" style="display: none; font-size: 12px; font-weight: 500; padding: 6px 12px; border-radius: 4px;"></div>
                             </div>
                         </div>
 
@@ -2285,6 +2432,115 @@
             return `${m}:${String(s).padStart(2, '0')}`;
         }
 
+        // G-Code File Upload & Printing Functions
+        let selectedFile = null;
+
+        function handleFileSelected(input) {
+            const fileNameSpan = document.getElementById('selectedFileName');
+            const uploadBtn = document.getElementById('btnUploadFile');
+            const resultMsg = document.getElementById('uploadResultMsg');
+            
+            resultMsg.style.display = 'none';
+            
+            if (input.files && input.files.length > 0) {
+                selectedFile = input.files[0];
+                fileNameSpan.textContent = selectedFile.name + " (" + formatBytes(selectedFile.size) + ")";
+                fileNameSpan.style.color = 'var(--text-main)';
+                uploadBtn.disabled = false;
+            } else {
+                selectedFile = null;
+                fileNameSpan.textContent = 'Dosya seçilmedi';
+                fileNameSpan.style.color = 'var(--text-muted)';
+                uploadBtn.disabled = true;
+            }
+        }
+
+        function formatBytes(bytes, decimals = 2) {
+            if (!+bytes) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+        }
+
+        function uploadGcodeFile() {
+            if (!selectedFile) return;
+            
+            const uploadBtn = document.getElementById('btnUploadFile');
+            const fileInput = document.getElementById('gcodeFileInput');
+            const printNow = document.getElementById('printNowCheckbox').checked;
+            const progressContainer = document.getElementById('uploadProgressContainer');
+            const progressBar = document.getElementById('uploadProgressBar');
+            const statusText = document.getElementById('uploadStatusText');
+            const percentText = document.getElementById('uploadPercentText');
+            const resultMsg = document.getElementById('uploadResultMsg');
+            
+            uploadBtn.disabled = true;
+            fileInput.disabled = true;
+            progressContainer.style.display = 'block';
+            resultMsg.style.display = 'none';
+            progressBar.style.width = '0%';
+            percentText.textContent = '0%';
+            statusText.textContent = 'Dosya okunuyor...';
+            
+            const xhr = new XMLHttpRequest();
+            
+            xhr.upload.addEventListener('progress', function(e) {
+                if (e.lengthComputable) {
+                    const percent = Math.round((e.loaded / e.total) * 100);
+                    progressBar.style.width = percent + '%';
+                    percentText.textContent = percent + '%';
+                    statusText.textContent = `Yazıcıya gönderiliyor (${formatBytes(e.loaded)} / ${formatBytes(e.total)})...`;
+                }
+            });
+            
+            xhr.addEventListener('load', function() {
+                fileInput.disabled = false;
+                fileInput.value = ''; // Reset file input
+                progressContainer.style.display = 'none';
+                
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    resultMsg.style.display = 'block';
+                    if (xhr.status === 200 && response.ok) {
+                        resultMsg.style.background = 'rgba(46, 213, 115, 0.1)';
+                        resultMsg.style.color = '#2ed573';
+                        resultMsg.style.border = '1px solid rgba(46, 213, 115, 0.2)';
+                        resultMsg.textContent = response.message || 'Dosya başarıyla yüklendi.';
+                        selectedFile = null;
+                        document.getElementById('selectedFileName').textContent = 'Dosya seçilmedi';
+                        document.getElementById('selectedFileName').style.color = 'var(--text-muted)';
+                    } else {
+                        throw new Error(response.error || 'Bilinmeyen sunucu hatası.');
+                    }
+                } catch (err) {
+                    resultMsg.style.display = 'block';
+                    resultMsg.style.background = 'rgba(255, 71, 87, 0.1)';
+                    resultMsg.style.color = '#ff4757';
+                    resultMsg.style.border = '1px solid rgba(255, 71, 87, 0.2)';
+                    resultMsg.textContent = 'Hata: ' + err.message;
+                    uploadBtn.disabled = false;
+                }
+            });
+            
+            xhr.addEventListener('error', function() {
+                fileInput.disabled = false;
+                progressContainer.style.display = 'none';
+                resultMsg.style.display = 'block';
+                resultMsg.style.background = 'rgba(255, 71, 87, 0.1)';
+                resultMsg.style.color = '#ff4757';
+                resultMsg.style.border = '1px solid rgba(255, 71, 87, 0.2)';
+                resultMsg.textContent = 'Bağlantı hatası: Dosya gönderilemedi.';
+                uploadBtn.disabled = false;
+            });
+            
+            const url = `/api/upload?filename=${encodeURIComponent(selectedFile.name)}&print_now=${printNow}`;
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+            xhr.send(selectedFile);
+        }
+
         // Primary loop: polls the fastapi status endpoint
         async function load() {
             try {
@@ -2314,6 +2570,66 @@
                 document.getElementById('currentFileName').textContent = data.current_file || 'Boşta';
                 document.getElementById('currentLayer').textContent = data.layer || '0 / 0';
                 document.getElementById('lastUpdatedAt').textContent = data.updated_at || '-';
+                
+                // Hardware & Environmental stats updates
+                const fwBadge = document.getElementById('firmwareVersionBadge');
+                if (fwBadge) fwBadge.textContent = data.firmware_version ? 'v' + data.firmware_version : 'v-.-.-';
+                
+                const chamberEl = document.getElementById('hwChamberTemp');
+                if (chamberEl) {
+                    const cTemp = data.chamber_temp !== undefined ? data.chamber_temp : 0;
+                    const cTarget = data.chamber_target_temp !== undefined ? data.chamber_target_temp : 0;
+                    chamberEl.textContent = `${cTemp}°C / ${cTarget}°C`;
+                }
+
+                const tvocEl = document.getElementById('hwTvoc');
+                if (tvocEl) tvocEl.textContent = (data.tvoc !== undefined ? data.tvoc : 0) + ' ppb';
+
+                const fanSpeedsEl = document.getElementById('hwFanSpeeds');
+                if (fanSpeedsEl) {
+                    const leftFan = data.cooling_fan_left_speed !== undefined ? data.cooling_fan_left_speed : 0;
+                    const mainFan = data.cooling_fan_speed !== undefined ? data.cooling_fan_speed : 0;
+                    fanSpeedsEl.textContent = `${leftFan}% / ${mainFan}%`;
+                }
+
+                const chamberFanEl = document.getElementById('hwChamberFan');
+                if (chamberFanEl) chamberFanEl.textContent = (data.chamber_fan_speed !== undefined ? data.chamber_fan_speed : 0) + '%';
+
+                const doorLightEl = document.getElementById('hwDoorLight');
+                if (doorLightEl) {
+                    const door = data.door_status === 'open' ? 'Açık' : (data.door_status === 'close' ? 'Kapalı' : '-');
+                    const light = data.light_status === 'open' ? 'Açık' : (data.light_status === 'close' ? 'Kapalı' : '-');
+                    doorLightEl.textContent = `${door} / ${light}`;
+                }
+
+                const storageEl = document.getElementById('hwStorage');
+                if (storageEl) {
+                    const space = typeof data.remaining_disk_space === 'number' ? data.remaining_disk_space.toFixed(2) : '-';
+                    storageEl.textContent = space + ' GB';
+                }
+
+                const totalTimeEl = document.getElementById('hwTotalTime');
+                if (totalTimeEl) {
+                    const mins = typeof data.cumulative_print_time === 'number' ? data.cumulative_print_time : 0;
+                    const hours = (mins / 60).toFixed(1);
+                    totalTimeEl.textContent = `${hours} sa (${mins} dk)`;
+                }
+
+                const totalFilamentEl = document.getElementById('hwTotalFilament');
+                if (totalFilamentEl) {
+                    const meters = typeof data.cumulative_filament === 'number' ? data.cumulative_filament.toFixed(2) : '-';
+                    totalFilamentEl.textContent = meters + ' m';
+                }
+
+                const nozzleModelEl = document.getElementById('hwNozzleModel');
+                if (nozzleModelEl) nozzleModelEl.textContent = data.nozzle_model || '-';
+
+                const ipMacEl = document.getElementById('hwIpMac');
+                if (ipMacEl) {
+                    const ip = data.ip_addr || '-';
+                    const mac = data.mac_addr || '-';
+                    ipMacEl.textContent = `${ip} [${mac}]`;
+                }
                 
                 // Dynamic Button States based on machine_status
                 const isPrinting = status === 'BUILDING_FROM_SD' || status === 'BUILDING' || status === 'PRINTING';
@@ -2433,12 +2749,12 @@
                 
                 // LED lighting status representation
                 const rawLed = String(data.led ?? '').toLowerCase();
-                const isLedOn = rawLed.includes('1') || rawLed.includes('on') || rawLed.includes('255');
+                const isLedOn = data.light_status === 'open' || rawLed.includes('1') || rawLed.includes('on') || rawLed.includes('255');
                 const ledTextEl = document.getElementById('ledStatusText');
                 const ledIconWrap = document.getElementById('ledStatusIconWrapper');
                 
                 if (isLedOn) {
-                    ledTextEl.textContent = 'Durum: Açık (' + data.led + ')';
+                    ledTextEl.textContent = 'Durum: Açık';
                     ledIconWrap.classList.add('active');
                     document.getElementById('ledOptOn').classList.add('active');
                     document.getElementById('ledOptOff').classList.remove('active');

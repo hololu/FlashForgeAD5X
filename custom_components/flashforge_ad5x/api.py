@@ -77,20 +77,27 @@ class FlashForgeAPI:
         url = f"http://{self.host}:8898/detail"
         headers = {
             "serialNumber": self.serial,
+            "serialNo": self.serial,
             "checkCode": self.check_code,
             "Content-Type": "application/json"
         }
         
+        payload = json.dumps({
+            "serialNumber": self.serial,
+            "serialNo": self.serial,
+            "checkCode": self.check_code
+        })
+        
         try:
             if self.session:
-                async with self.session.post(url, data="{}", headers=headers, timeout=timeout) as resp:
+                async with self.session.post(url, data=payload, headers=headers, timeout=timeout) as resp:
                     if resp.status == 200:
                         return await resp.json()
                     else:
                         return {"error": f"HTTP status {resp.status}"}
             else:
                 async with aiohttp.ClientSession() as session:
-                    async with session.post(url, data="{}", headers=headers, timeout=timeout) as resp:
+                    async with session.post(url, data=payload, headers=headers, timeout=timeout) as resp:
                         if resp.status == 200:
                             return await resp.json()
                         else:
@@ -219,7 +226,23 @@ class FlashForgeAPI:
         if self.serial and self.check_code:
             detail_data = await self.async_fetch_detail()
 
-        filament_info = detail_data.get("matlStationInfo") if isinstance(detail_data, dict) else None
+        detail_dict = {}
+        if isinstance(detail_data, dict):
+            if "detail" in detail_data and isinstance(detail_data["detail"], dict):
+                detail_dict = detail_data["detail"]
+            else:
+                detail_dict = detail_data
+
+        filament_info = detail_dict.get("matlStationInfo") if isinstance(detail_dict, dict) else None
+
+        # Log auth or API warnings for diagnostics
+        if isinstance(detail_data, dict) and not filament_info:
+            code_val = detail_data.get("code")
+            msg_val = detail_data.get("message")
+            if code_val in [401, -1] or (isinstance(msg_val, str) and any(x in msg_val.lower() for x in ["auth", "parameter"])):
+                _LOGGER.warning("FlashForge HTTP API Kimlik Doğrulama Hatası (Kod: %s, Mesaj: %s). Lütfen Seri Numarasını ve LAN Kodunu kontrol edin.", code_val, msg_val)
+            elif "error" in detail_data:
+                _LOGGER.debug("HTTP Detay API Hatası: %s", detail_data["error"])
 
         data = {
             "online": True,
@@ -240,6 +263,25 @@ class FlashForgeAPI:
             "bed_current": m105_data["bed_current"],
             "bed_target": m105_data["bed_target"],
             "filament_info": filament_info,
+            # HTTP detail API values
+            "chamber_temp": detail_dict.get("chamberTemp", 0.0),
+            "chamber_target_temp": detail_dict.get("chamberTargetTemp", 0.0),
+            "chamber_fan_speed": detail_dict.get("chamberFanSpeed", 0),
+            "cooling_fan_speed": detail_dict.get("coolingFanSpeed", 0),
+            "cooling_fan_left_speed": detail_dict.get("coolingFanLeftSpeed", 0),
+            "door_status": detail_dict.get("doorStatus", "unknown"),
+            "light_status": detail_dict.get("lightStatus", "unknown"),
+            "firmware_version": detail_dict.get("firmwareVersion", ""),
+            "cumulative_print_time": detail_dict.get("cumulativePrintTime", 0),
+            "cumulative_filament": detail_dict.get("cumulativeFilament", 0.0),
+            "remaining_disk_space": detail_dict.get("remainingDiskSpace", 0.0),
+            "estimated_time": detail_dict.get("estimatedTime", 0.0),
+            "nozzle_model": detail_dict.get("nozzleModel", ""),
+            "tvoc": detail_dict.get("tvoc", 0),
+            "z_axis_compensation": detail_dict.get("zAxisCompensation", 0.0),
+            "ip_addr": detail_dict.get("ipAddr", ""),
+            "mac_addr": detail_dict.get("macAddr", ""),
+            "detail_raw": detail_dict,
             "updated_at": datetime.now().isoformat()
         }
         return data
