@@ -1644,7 +1644,10 @@
                             </svg>
                             Filament İstasyonu (IFS)
                         </span>
-                        <span class="ip-badge" id="activeIfsSlotInfo">Aktif Slot: -</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span class="ip-badge" id="activeIfsSlotInfo">Aktif Slot: -</span>
+                            <button class="macro-chip" id="btnUnloadIfs" style="display: none; border: 1px solid var(--border-color); background: transparent; font-size: 11px; color: var(--color-warning);" onclick="unloadIfsFilament()" title="Aktif Filamenti Çıkar (Unload)">Çıkar (M702)</button>
+                        </div>
                     </div>
                     
                     <div class="ifs-slots-grid" id="ifsSlotsContainer" style="display: none;">
@@ -2218,10 +2221,17 @@
         }
 
         function selectIfsSlot(slotId) {
-            const tIndex = slotId - 1; // Slot 1 -> T0, Slot 2 -> T1, Slot 3 -> T2, Slot 4 -> T3
-            if (confirm(`IFS Filament Slot ${slotId} (T${tIndex}) filamenti aktif edilerek yükleme başlatılsın mı?`)) {
-                logConsole(`IFS Slot ${slotId} seçiliyor (T${tIndex})...`, 'system');
-                sendGcode(`T${tIndex}`);
+            const tIndex = slotId - 1; // Slot 1 -> T0 (Index 0), Slot 2 -> T1 (Index 1), Slot 3 -> T2 (Index 2), Slot 4 -> T3 (Index 3)
+            if (confirm(`IFS Filament Slot ${slotId} (T${tIndex}) seçilerek yükleme başlatılsın mı?`)) {
+                logConsole(`IFS Slot ${slotId} yükleniyor (Komutlar: T${tIndex}, M700 S${tIndex}, M701)...`, 'cmd');
+                sendGcode(`T${tIndex}\nM700 S${tIndex}\nM701`);
+            }
+        }
+
+        function unloadIfsFilament() {
+            if (confirm("Aktif filament istasyona geri çıkarılsın mı? (Komut: M702)")) {
+                logConsole("Filament çıkarma komutu gönderiliyor (M702)...", "cmd");
+                sendGcode("M702");
             }
         }
 
@@ -2691,6 +2701,7 @@
                 const ifsSlotsContainer = document.getElementById('ifsSlotsContainer');
                 const ifsUnconfigured = document.getElementById('ifsUnconfiguredFallback');
                 const activeIfsSlotInfo = document.getElementById('activeIfsSlotInfo');
+                const btnUnloadIfs = document.getElementById('btnUnloadIfs');
                 
                 if (data.filament_info && data.filament_info.slotInfos) {
                     ifsUnconfigured.style.display = 'none';
@@ -2698,23 +2709,52 @@
                     
                     const info = data.filament_info;
                     const slots = info.slotInfos || [];
-                    const activeSlotId = info.currentLoadSlot !== undefined ? info.currentLoadSlot : info.currentSlot;
                     
-                    if (activeSlotId !== undefined && activeSlotId > 0) {
-                        activeIfsSlotInfo.textContent = `Yüklü: Slot ${activeSlotId}`;
+                    // Parse raw active slot index from FlashForge REST payload
+                    let rawActive = undefined;
+                    if (info.currentLoadSlot !== undefined && info.currentLoadSlot !== null) {
+                        rawActive = info.currentLoadSlot;
+                    } else if (info.currentSlot !== undefined && info.currentSlot !== null) {
+                        rawActive = info.currentSlot;
+                    } else if (info.activeSlot !== undefined && info.activeSlot !== null) {
+                        rawActive = info.activeSlot;
+                    } else if (info.curSlot !== undefined && info.curSlot !== null) {
+                        rawActive = info.curSlot;
+                    }
+
+                    // Normalize to 1-based slot number (1, 2, 3, 4)
+                    let activeSlotNum = null;
+                    if (rawActive !== undefined && rawActive !== null && rawActive !== -1 && rawActive !== 255) {
+                        const hasSlotZero = slots.some(s => (s.slotId !== undefined ? s.slotId : s.id) === 0);
+                        if (hasSlotZero || rawActive === 0) {
+                            activeSlotNum = Number(rawActive) + 1;
+                        } else {
+                            activeSlotNum = Number(rawActive);
+                        }
+                    }
+                    
+                    if (activeSlotNum && activeSlotNum >= 1 && activeSlotNum <= 4) {
+                        activeIfsSlotInfo.textContent = `Yüklü: Slot ${activeSlotNum}`;
                         activeIfsSlotInfo.style.color = 'var(--color-success)';
+                        if (btnUnloadIfs) btnUnloadIfs.style.display = 'inline-flex';
                     } else {
                         activeIfsSlotInfo.textContent = 'Yüklü: Yok';
                         activeIfsSlotInfo.style.color = 'var(--text-secondary)';
+                        if (btnUnloadIfs) btnUnloadIfs.style.display = 'none';
                     }
                     
-                    // DOM güncellemesi
+                    // DOM render loop
                     let currentHtml = '';
-                    slots.sort((a, b) => a.slotId - b.slotId).forEach(slot => {
-                        const isActive = slot.slotId === activeSlotId;
-                        const hasFilament = slot.hasFilament;
-                        const matColor = slot.materialColor || '#6b7280';
-                        const matName = slot.materialName || 'PLA';
+                    slots.sort((a, b) => (a.slotId !== undefined ? a.slotId : (a.id || 0)) - (b.slotId !== undefined ? b.slotId : (b.id || 0))).forEach((slot, idx) => {
+                        let sId = slot.slotId !== undefined ? slot.slotId : (slot.id !== undefined ? slot.id : idx + 1);
+                        if (slots.some(s => (s.slotId !== undefined ? s.slotId : s.id) === 0)) {
+                            sId = sId + 1; // Convert 0,1,2,3 to 1,2,3,4
+                        }
+                        
+                        const isActive = activeSlotNum === sId;
+                        const hasFilament = slot.hasFilament !== undefined ? slot.hasFilament : (slot.has_filament !== undefined ? slot.has_filament : true);
+                        const matColor = slot.materialColor || slot.color || '#6b7280';
+                        const matName = slot.materialName || slot.name || 'PLA';
                         
                         let colorCircleHtml = '';
                         if (hasFilament) {
@@ -2723,9 +2763,10 @@
                             colorCircleHtml = `<div class="ifs-slot-color-circle empty"></div>`;
                         }
                         
+                        const tIndex = sId - 1;
                         currentHtml += `
-                            <div class="ifs-slot-card ${isActive ? 'active' : ''}" onclick="selectIfsSlot(${slot.slotId})" title="${isActive ? 'Aktif Yüklü Slot' : (hasFilament ? 'Tıkla ve bu filamenti aktif et (T' + (slot.slotId - 1) + ')' : 'Slot boş')}">
-                                <span class="ifs-slot-id">Slot ${slot.slotId}</span>
+                            <div class="ifs-slot-card ${isActive ? 'active' : ''}" onclick="selectIfsSlot(${sId})" title="${isActive ? 'Aktif Yüklü Slot' : (hasFilament ? 'Tıkla ve bu filamenti yükle (T' + tIndex + ')' : 'Slot boş')}">
+                                <span class="ifs-slot-id">Slot ${sId}</span>
                                 ${colorCircleHtml}
                                 <span class="ifs-slot-material">${hasFilament ? matName : 'BOŞ'}</span>
                                 <span class="ifs-slot-status">${isActive ? '● Aktif Yüklü' : (hasFilament ? 'Yüklü (Tıkla)' : 'Filament Yok')}</span>
