@@ -273,29 +273,52 @@ def parse_temperatures(text: str):
 def _fetch_http_detail_sync(host, serial, check_code):
     import urllib.request
     import json
+
+    serial = (serial or "").strip()
+    check_code = (check_code or "").strip()
+
     url = f"http://{host}:8898/detail"
-    
-    # Send credentials in both body and headers to support different firmware versions
-    payload = {
+
+    headers = {
+        "serialNumber": serial,
+        "serialNo": serial,
+        "checkCode": check_code,
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) FlashForge-Panel/1.0"
+    }
+
+    payload = json.dumps({
         "serialNumber": serial,
         "serialNo": serial,
         "checkCode": check_code
-    }
-    data = json.dumps(payload).encode("utf-8")
-    
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={
-            "serialNumber": serial,
-            "serialNo": serial,
-            "checkCode": check_code,
-            "Content-Type": "application/json"
-        },
-        method="POST"
-    )
-    with urllib.request.urlopen(req, timeout=3) as response:
-        return json.loads(response.read().decode())
+    }).encode("utf-8")
+
+    # Strategy 1: Try POST request
+    try:
+        req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=4) as response:
+            resp_text = response.read().decode("utf-8", errors="ignore").strip()
+            if resp_text.startswith("{") or resp_text.startswith("["):
+                return json.loads(resp_text)
+            elif "orcaServer" in resp_text or "debug" in resp_text:
+                print(f"orcaServer C++ debug response: {resp_text}")
+    except Exception as e:
+        print(f"POST /detail failed: {e}")
+
+    # Strategy 2: Fallback to GET request with query params & headers
+    try:
+        get_url = f"http://{host}:8898/detail?serialNo={serial}&checkCode={check_code}"
+        req_get = urllib.request.Request(get_url, headers=headers, method="GET")
+        with urllib.request.urlopen(req_get, timeout=4) as response:
+            resp_text = response.read().decode("utf-8", errors="ignore").strip()
+            if resp_text.startswith("{") or resp_text.startswith("["):
+                return json.loads(resp_text)
+            else:
+                return {"error": f"Yazıcı Web Sunucusu (orcaServer.cpp) Hata Yanıtı: {resp_text}"}
+    except Exception as e:
+        print(f"GET /detail failed: {e}")
+
+    return {"error": "Yazıcı detay API (8898) geçersiz yanıt döndürdü. Seri No ve LAN kodunu kontrol edin."}
 
 
 async def refresh_once():
@@ -321,15 +344,15 @@ async def refresh_once():
             detail_data = await loop.run_in_executor(
                 None, _fetch_http_detail_sync, PRINTER_HOST, PRINTER_SERIAL, PRINTER_CHECK_CODE
             )
-            
+
             if isinstance(detail_data, dict):
                 if "detail" in detail_data and isinstance(detail_data["detail"], dict):
                     detail_dict = detail_data["detail"]
                 else:
                     detail_dict = detail_data
-            
+
             filament_info = detail_dict.get("matlStationInfo")
-            
+
             # Save raw payload to detail_debug.json for inspection
             debug_file = os.path.join(BASE_DIR, "detail_debug.json")
             try:
@@ -337,25 +360,28 @@ async def refresh_once():
                     json.dump(detail_data, df, indent=4)
             except Exception as e:
                 print(f"Error saving detail_debug.json: {e}")
-                
+
             if not filament_info:
-                code_val = detail_data.get("code") if isinstance(detail_data, dict) else None
-                msg_val = detail_data.get("message") if isinstance(detail_data, dict) else None
-                keys_found = list(detail_data.keys()) if isinstance(detail_data, dict) else []
-                
-                if isinstance(detail_data, dict) and ("code" in detail_data or "message" in detail_data):
-                    is_auth_error = (
-                        code_val in [401, -1] or 
-                        (isinstance(msg_val, str) and any(x in msg_val.lower() for x in ["auth", "parameter"]))
-                    )
-                    if is_auth_error:
-                        filament_info_error = f"Kimlik Doğrulama Hatası (Kod: {code_val}, Mesaj: {msg_val}). Lütfen Seri Numarasını ve LAN Kodunu (Ayarlar -> LAN Şifresi) kontrol edin."
-                    elif code_val in [0, 200] or (isinstance(msg_val, str) and msg_val.lower() in ["ok", "success"]):
-                        filament_info_error = f"Bağlantı başarılı fakat filament istasyonu bilgisi (matlStationInfo) bulunamadı. Yazıcınız standart Adventurer 5M (non-Pro) olabilir veya filament istasyonu (IFS) bağlı/etkin olmayabilir."
-                    else:
-                        filament_info_error = f"Yazıcı Hata Döndürdü - Kod: {code_val}, Mesaj: {msg_val}"
+                if isinstance(detail_data, dict) and "error" in detail_data:
+                    filament_info_error = detail_data["error"]
                 else:
-                    filament_info_error = f"HTTP bağlantısı başarılı fakat 'matlStationInfo' bulunamadı. Mevcut anahtarlar: {keys_found}"
+                    code_val = detail_data.get("code") if isinstance(detail_data, dict) else None
+                    msg_val = detail_data.get("message") if isinstance(detail_data, dict) else None
+                    keys_found = list(detail_data.keys()) if isinstance(detail_data, dict) else []
+
+                    if isinstance(detail_data, dict) and ("code" in detail_data or "message" in detail_data):
+                        is_auth_error = (
+                            code_val in [401, -1] or 
+                            (isinstance(msg_val, str) and any(x in msg_val.lower() for x in ["auth", "parameter"]))
+                        )
+                        if is_auth_error:
+                            filament_info_error = f"Kimlik Doğrulama Hatası (Kod: {code_val}, Mesaj: {msg_val}). Lütfen Seri Numarasını ve LAN Kodunu (Ayarlar -> LAN Şifresi) kontrol edin."
+                        elif code_val in [0, 200] or (isinstance(msg_val, str) and msg_val.lower() in ["ok", "success"]):
+                            filament_info_error = f"Bağlantı başarılı fakat filament istasyonu bilgisi (matlStationInfo) bulunamadı. Yazıcınız standart Adventurer 5M (non-Pro) olabilir veya filament istasyonu (IFS) bağlı/etkin olmayabilir."
+                        else:
+                            filament_info_error = f"Yazıcı Hata Döndürdü - Kod: {code_val}, Mesaj: {msg_val}"
+                    else:
+                        filament_info_error = f"HTTP bağlantısı başarılı fakat 'matlStationInfo' bulunamadı. Mevcut anahtarlar: {keys_found}"
         except Exception as e:
             err_str = str(e)
             if "111" in err_str or "connection refused" in err_str.lower():
