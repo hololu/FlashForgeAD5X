@@ -1,5 +1,5 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -7,6 +7,7 @@ import asyncio
 import socket
 import os
 import json
+import urllib.request
 from collections import deque
 from datetime import datetime
 
@@ -634,3 +635,160 @@ async def post_settings(settings: SettingsModel):
     # Trigger an immediate background check to reflect new settings
     asyncio.create_task(refresh_once())
     return {"ok": True}
+
+
+class CameraBroadcaster:
+    def __init__(self):
+        self.subscribers = set()
+        self.task = None
+        self.lock = asyncio.Lock()
+        self.content_type = "multipart/x-mixed-replace; boundary=ffserver"
+
+    async def _stream_loop(self):
+        camera_url = f"http://{PRINTER_HOST}:8080/?action=stream"
+        
+        def open_conn():
+            try:
+                req = urllib.request.Request(
+                    camera_url,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) FlashForge-Panel/1.0",
+                        "Accept": "*/*"
+                    }
+                )
+                resp = urllib.request.urlopen(req, timeout=5)
+                c_type = resp.headers.get("Content-Type") or "multipart/x-mixed-replace; boundary=ffserver"
+                return resp, c_type
+            except Exception as e:
+                print(f"Broadcaster connection error: {e}")
+                return None, None
+
+        loop = asyncio.get_running_loop()
+        resp, c_type = await loop.run_in_executor(None, open_conn)
+        if not resp:
+            async with self.lock:
+                self.task = None
+            return
+
+        self.content_type = c_type
+
+        def sync_read():
+            try:
+                while True:
+                    chunk = resp.read(4096)
+                    if not chunk:
+                        break
+                    yield chunk
+            except Exception:
+                pass
+            finally:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
+
+        gen = sync_read()
+        try:
+            while True:
+                async with self.lock:
+                    if not self.subscribers:
+                        break
+                chunk = await loop.run_in_executor(None, lambda: next(gen, None))
+                if chunk is None:
+                    break
+                
+                async with self.lock:
+                    dead = set()
+                    for q in list(self.subscribers):
+                        try:
+                            if q.full():
+                                try:
+                                    q.get_nowait()
+                                except Exception:
+                                    pass
+                            q.put_nowait(chunk)
+                        except Exception:
+                            dead.add(q)
+                    self.subscribers -= dead
+        finally:
+            async with self.lock:
+                self.task = None
+
+    async def subscribe(self):
+        q = asyncio.Queue(maxsize=15)
+        async with self.lock:
+            if self.task is None or self.task.done():
+                self.task = asyncio.create_task(self._stream_loop())
+            self.subscribers.add(q)
+        return q
+
+    async def unsubscribe(self, q):
+        async with self.lock:
+            self.subscribers.discard(q)
+
+
+camera_broadcaster = CameraBroadcaster()
+
+
+@app.get("/api/camera/stream")
+async def api_camera_stream():
+    """Proxy the MJPEG camera stream from the printer through a multi-client broadcaster."""
+    try:
+        q = await camera_broadcaster.subscribe()
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"Kamera yayını başlatılamadı: {e}"}, status_code=502)
+
+    async def client_generator():
+        try:
+            while True:
+                chunk = await q.get()
+                if chunk is None:
+                    break
+                yield chunk
+        except asyncio.CancelledError:
+            pass
+        finally:
+            await camera_broadcaster.unsubscribe(q)
+
+    headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+    return StreamingResponse(
+        client_generator(),
+        media_type=camera_broadcaster.content_type,
+        headers=headers
+    )
+
+
+
+@app.get("/api/camera/snapshot")
+async def api_camera_snapshot():
+    """Proxy a single camera frame snapshot from the printer."""
+    camera_url = f"http://{PRINTER_HOST}:8080/?action=snapshot"
+
+    def fetch_snapshot():
+        try:
+            req = urllib.request.Request(
+                camera_url,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) FlashForge-Panel/1.0"}
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                return resp.read()
+        except Exception as e:
+            print(f"Camera snapshot error: {e}")
+            return None
+
+    loop = asyncio.get_running_loop()
+    img_bytes = await loop.run_in_executor(None, fetch_snapshot)
+    if img_bytes:
+        return Response(
+            content=img_bytes,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+        )
+    return JSONResponse({"ok": False, "error": "Kamera görüntüsü alınamadı"}, status_code=502)
+
+
+

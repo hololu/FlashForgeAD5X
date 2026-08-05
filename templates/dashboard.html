@@ -472,6 +472,13 @@
             position: relative;
             transition: var(--transition-smooth);
             text-align: center;
+            cursor: pointer;
+        }
+
+        .ifs-slot-card:hover {
+            border-color: var(--color-primary);
+            background: rgba(59, 130, 246, 0.08);
+            transform: translateY(-2px);
         }
 
         .ifs-slot-card.active {
@@ -1615,7 +1622,7 @@
                         </div>
                     </div>
                     <div class="camera-stream-container">
-                        <img src="http://{{ printer }}:8080/?action=stream" alt="Canlı Kamera Yayını" id="cameraImg" onerror="handleCameraError()">
+                        <img src="/api/camera/stream" alt="Canlı Kamera Yayını" id="cameraImg" onerror="handleCameraError()">
                         <div class="camera-fallback" id="cameraFallback">
                             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 8px; color: var(--text-muted);">
                                 <path d="M1 1l22 22M21 16V8a2 2 0 0 0-2-2h-4l-2-3H9L8.13 4.3M3 8v11a2 2 0 0 0 2 2h14a2 2 0 0 0 1.25-.45"></path>
@@ -2123,7 +2130,7 @@
             const fallback = document.getElementById('cameraFallback');
             fallback.style.display = 'none';
             img.style.display = 'block';
-            img.src = "http://{{ printer }}:8080/?action=stream&t=" + Date.now();
+            img.src = "/api/camera/stream?t=" + Date.now();
             logConsole("Kamera yayını yenileniyor...", "system");
         }
 
@@ -2188,6 +2195,34 @@
             .catch(e => {
                 logConsole(`Bağlantı Hatası: ${e}`, 'error');
             });
+        }
+
+        function sendGcode(gcode) {
+            logConsole(`G-Kod gönderiliyor: ${gcode}`, 'cmd');
+            fetch('/api/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: 'custom', gcode: gcode })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    logConsole(`G-Kod başarılı. Cevap: ${data.response || 'ok'}`, 'system');
+                } else {
+                    logConsole(`Hata: ${data.error}`, 'error');
+                }
+            })
+            .catch(e => {
+                logConsole(`Bağlantı Hatası: ${e}`, 'error');
+            });
+        }
+
+        function selectIfsSlot(slotId) {
+            const tIndex = slotId - 1; // Slot 1 -> T0, Slot 2 -> T1, Slot 3 -> T2, Slot 4 -> T3
+            if (confirm(`IFS Filament Slot ${slotId} (T${tIndex}) filamenti aktif edilerek yükleme başlatılsın mı?`)) {
+                logConsole(`IFS Slot ${slotId} seçiliyor (T${tIndex})...`, 'system');
+                sendGcode(`T${tIndex}`);
+            }
         }
 
         // Double-click safety mechanism for STOP command
@@ -2689,11 +2724,11 @@
                         }
                         
                         currentHtml += `
-                            <div class="ifs-slot-card ${isActive ? 'active' : ''}">
+                            <div class="ifs-slot-card ${isActive ? 'active' : ''}" onclick="selectIfsSlot(${slot.slotId})" title="${isActive ? 'Aktif Yüklü Slot' : (hasFilament ? 'Tıkla ve bu filamenti aktif et (T' + (slot.slotId - 1) + ')' : 'Slot boş')}">
                                 <span class="ifs-slot-id">Slot ${slot.slotId}</span>
                                 ${colorCircleHtml}
                                 <span class="ifs-slot-material">${hasFilament ? matName : 'BOŞ'}</span>
-                                <span class="ifs-slot-status">${hasFilament ? 'Yüklü' : 'Filament Yok'}</span>
+                                <span class="ifs-slot-status">${isActive ? '● Aktif Yüklü' : (hasFilament ? 'Yüklü (Tıkla)' : 'Filament Yok')}</span>
                             </div>
                         `;
                     });

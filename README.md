@@ -13,7 +13,7 @@ Proje dosyaları ve klasör mimarisi aşağıdaki şekildedir:
 
 ```text
 flashforge/
-├── flashforge_panel.py      # FastAPI tabanlı Web sunucu (Backend)
+├── flashforge_panel.py      # FastAPI tabanlı Web sunucu (Backend) & Kamera Proxy Dağıtıcısı
 ├── config.json              # Yazıcı bağlantı ve kalıcı ince ayarlar (Otomatik oluşturulur)
 ├── templates/
 │   └── dashboard.html       # Modern, responsive ve premium Web Arayüzü (Frontend)
@@ -39,19 +39,23 @@ flashforge/
 FlashForge yazıcıları güvenlik nedeniyle TCP portu (8899) üzerinden gönderilen kontrol komutlarını doğrudan kabul etmez. Kontrol komutu gönderilmeden önce aynı TCP soket oturumunda login (`~M601 S1\r\n`) yapılması, işlem bittikten sonra ise oturumun serbest bırakılması (`~M602\r\n`) gerekir. 
 * **Backend Çözümü:** `flashforge_panel.py` içindeki soket yönetim motoru, gönderilen komutun türünü (sorgu veya kontrol) otomatik olarak ayırt eder. Kontrol komutlarında soket açıldıktan hemen sonra arka planda el sıkışması gerçekleştirir ve işi bittiğinde oturumu sonlandırarak diğer ağ istemcilerinin (örneğin slicer yazılımları) yazıcıyı kilitlemesini önler.
 
-### 2. Baskı İnce Ayarları (Live Tuning) Takibi
+### 2. Sunucu Üzerinden Canlı Kamera Proxy ve Eş Zamanlı Yayın (`CameraBroadcaster`)
+Yazıcının dâhili `mjpg-streamer` kamera sunucusu donanımsal olarak aynı anda yalnızca 1 istemci bağlantısını kabul eder. Ayrıca dış ağdan veya HTTPS arkasından erişimde cihazın yerel IP'sine (port 8080) bağlanma zorunluluğu yayın hatalarına sebep olabilmektedir.
+* **Sunucu Proxy (`/api/camera/stream`):** Kamera yayını sunucu üzerinden iletilir. Dış ağdan, VPN veya reverse proxy üzerinden bağlanan kullanıcılar yerel yazıcı IP'sine ihtiyaç duymadan yayını izler.
+* **Eş Zamanlı Yayıncı (Multi-Client Fan-Out):** Arka planda çalışan `CameraBroadcaster` sınıfı yazıcı ile **tek bir aktif kamera bağlantısı** sürdürür ve gelen MJPEG karelerini bağlı tüm istemcilere (telefon, bilgisayar, tablet) aynı anda yayınlar.
+* **Sıfır Ekstra Bağımlılık (Standard Library):** Kamera proxy ve snapshot (`/api/camera/snapshot`) mekanizması Python'ın standart kütüphanesi (`urllib.request`) ile hazırlanmıştır, ekstra üçüncü taraf bağımlılığı gerektirmez.
+
+### 3. Etkileşimli IFS (Filament İstasyonu) Slot Seçimi & Değişimi
+Adventurer 5M Pro / AD5X modellerindeki 4-slotlu Filament İstasyonu (IFS) arayüzde etkileşimli hale getirilmiştir.
+* **Filament Değiştirme:** Kart üzerindeki Slot 1, 2, 3 veya 4 butonlarına tıklandığında onay verilerek yazıcıya ilgili slot değişim G-kodları (`T0`, `T1`, `T2`, `T3`) gönderilir ve aktif filament otomatik olarak değiştirilir.
+
+### 4. Baskı İnce Ayarları (Live Tuning) Takibi
 Yazıcının standart HTTP ve TCP durum sorguları; baskı hızı çarpanı, fan gücü ve nozul Z-ofset (babystepping) gibi anlık ince ayar durumlarını dışarıya raporlamaz.
 * **Backend Çözümü:** Panel üzerinden gönderilen ince ayar komutları (`M220`, `M106`, `SET_GCODE_OFFSET`, `M290` ve `G29.1`) sunucu tarafında regex filtreleriyle yakalanır, durum güncellenir ve `config.json` dosyasına kaydedilir. Arayüz sorgu yaptığında bu değerler arayüze senkronize edilerek sayfa yenilense bile son ayarlanan ince ayarların ekranda kalması sağlanır.
 
-### 3. Baskı Bitiminde Otomatik Sıfırlama
+### 5. Baskı Bitiminde Otomatik Sıfırlama
 Baskı tamamlandığında veya iptal edildiğinde yazıcı donanımsal olarak eski Z-ofset veya hız çarpanı değerlerini koruyabilir, bu da bir sonraki baskıda tablanın nozula çarpmasına veya baskı hatalarına yol açabilir.
 * **Backend Çözümü:** Yazıcının durumu `BUILDING_FROM_SD` veya `PAUSED` durumundan `READY` (Boşta) durumuna geçtiğinde; **Z-Ofset** `0.00 mm`, **Hız Çarpanı** `%100` ve **Fan Gücü** `%0` (Kapalı) değerlerine otomatik olarak sıfırlanır ve kalıcı hafızaya kaydedilir.
-
-### 4. Gelişmiş Kamera Arayüzü ve Tam Ekran Desteği
-Yazıcının 8080 portundaki canlı kamera akışı arayüzde 16:9 oranında gösterilir. Eklenen HTML5 Fullscreen API desteği sayesinde kullanıcılar **"Tam Ekran"** butonuna basarak kamerayı tam ekran moduna geçirebilirler. Bu modda görüntü ekran çözünürlüğüne göre en yüksek boyutta (`object-fit: contain`) ölçeklenir.
-
-### 5. Akıllı IFS (Filament İstasyonu) Teşhisi
-Eğer yazıcı **Adventurer 5M Pro** ise HTTP portu (8898) üzerinden IFS (Integrated Filament System) 4-slot bilgileri çekilir. Yazıcının standart **Adventurer 5M** olması veya LAN modunun kapalı olması durumunda oluşan `Connection refused (Errno 111)` hatası yakalanarak kullanıcıya yönlendirici ve anlaşılır bir hata açıklaması sunulur.
 
 ### 6. Detaylı Donanım ve Çevre Durumu Takibi (HTTP 8898 /detail API)
 Yazıcının `/detail` REST API'sinden gelen tüm zengin donanım ve çevre verileri çözümlenmiştir:
@@ -80,7 +84,7 @@ Yazıcının `/detail` REST API'sinden gelen tüm zengin donanım ve çevre veri
 3. **Sunucunun Başlatılması:**
    Terminal veya PowerShell üzerinden proje kök dizininde şu komutu çalıştırın:
    ```bash
-   python -m uvicorn flashforge_panel:app --host 0.0.0.0 --port 8000 --reload
+   python3 -m uvicorn flashforge_panel:app --host 0.0.0.0 --port 8000
    ```
 
 4. **Kullanıcı Arayüzüne Erişim:**
@@ -103,6 +107,8 @@ Yazıcının `/detail` REST API'sinden gelen tüm zengin donanım ve çevre veri
 Dashboard üzerinden gönderilen ve arka planda desteklenen G-kod karşılıkları:
 
 * **Z-Ofset Babystepping:** `SET_GCODE_OFFSET Z_ADJUST={değer} MOVE=1` ve `M290 Z{değer}` komutları ardışık gönderilerek hem Klipper hem Marlin uyumluluğu sağlanır.
+* **IFS Slot Değişimi:** `T0`, `T1`, `T2`, `T3` komutları ile ilgili filament slotuna otomatik geçiş yapılır.
 * **Baskı Hızı Çarpanı (Feedrate):** `M220 S{yüzde}` komutu gönderilir. Sürgü adımları %5 hassasiyetle çalışır.
 * **Soğutma Fanı Gücü:** `%` olarak girilen değer `S0` ile `S255` arasına ölçeklenerek `M106 S{değer}` şeklinde gönderilir.
 * **Kabin LED Kontrolü:** LED açma için `M146 r255 g255 b255 f0`, kapatma için `M146 r0 g0 b0 f0` komutları kullanılır.
+
