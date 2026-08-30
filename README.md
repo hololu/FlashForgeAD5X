@@ -149,5 +149,40 @@ Bileşen Home Assistant içerisinde tam teşekküllü bir cihaz olarak tanımlan
 
 ---
 
-## 📄 Lisans
-Bu proje açık kaynaklı olup topluluk kullanımına ve geliştirmelerine açıktır.
+## 👨‍💻 Geliştirici & Hakkında (About & Author)
+
+Bu proje, **Mustafa Özkaya ([hOLOlu](https://git.mustafaozkaya.tr/hololu))** tarafından **FlashForge Adventurer 5M / 5M Pro / AD5X** serisi 3D yazıcılar için modern, bağımsız, yüksek performanslı bir Web Kontrol Paneli ve Home Assistant entegrasyonu sunmak amacıyla geliştirilmiştir.
+
+* **Geliştirici:** Mustafa Özkaya ([@hOLOlu](https://git.mustafaozkaya.tr/hololu))
+* **Kaynak Kod Deposu:** [https://git.mustafaozkaya.tr/hololu/FlashForgeAD5X](https://git.mustafaozkaya.tr/hololu/FlashForgeAD5X)
+* **Desteklenen Cihazlar:** FlashForge Adventurer 5M (AD5M), FlashForge Adventurer 5M Pro (AD5M Pro), FlashForge AD5X ve 4-Slot IFS Filament İstasyonu Modülü.
+
+---
+
+## 📄 Lisans & Telif Hakkı (License & Copyright)
+
+Bu proje **MIT Lisansı** kapsamında açık kaynak olarak lisanslanmıştır.
+
+```text
+MIT License
+
+Copyright (c) 2026 Mustafa Özkaya (hOLOlu)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

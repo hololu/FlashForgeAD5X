@@ -1,11 +1,11 @@
 {
   "domain": "flashforge_ad5x",
   "name": "FlashForge AD5X",
-  "codeowners": [],
+  "codeowners": ["@hololu"],
   "config_flow": true,
-  "documentation": "https://github.com/flashforge_ad5x",
+  "documentation": "https://git.mustafaozkaya.tr/hololu/FlashForgeAD5X",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/flashforge_ad5x/issues",
+  "issue_tracker": "https://git.mustafaozkaya.tr/hololu/FlashForgeAD5X/issues",
   "version": "1.0.0",
   "requirements": []
 }

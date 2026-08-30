@@ -1,3 +1,11 @@
+"""
+FlashForge AD5X Web Dashboard & Camera Proxy Backend
+Author: Mustafa Özkaya (hOLOlu)
+Repository: https://git.mustafaozkaya.tr/hololu/FlashForgeAD5X
+Copyright (c) 2026 Mustafa Özkaya. All rights reserved.
+License: MIT
+"""
+
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
