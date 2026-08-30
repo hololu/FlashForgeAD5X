@@ -8,6 +8,10 @@
   <strong>FlashForge AD5X (Adventurer 5M / 5M Pro)</strong> 3D yazıcıları için modern, responsive <strong>Web Kontrol Paneli (Web Dashboard)</strong> ve tam donanımlı <strong>Home Assistant Özel Bileşeni (Custom Component)</strong>.
 </p>
 
+<p align="center">
+  <img src="screenshot.png" alt="FlashForge AD5X Web Dashboard Arayüzü" width="100%"/>
+</p>
+
 ---
 
 Yazıcının **TCP kontrol portu (8899)**, **HTTP detay/sensör portu (8898)** ve **MJPEG kamera portu (8080)** protokolleri çözümlenerek; durum izleme, canlı kamera yayını, donanım sensörleri, IFS filament yönetimi, makro kontroller ve baskı sırasındaki canlı ince ayarlar (Live Tuning) tek bir çatı altında birleştirilmiştir.
@@ -20,6 +24,7 @@ Yazıcının **TCP kontrol portu (8899)**, **HTTP detay/sensör portu (8898)** v
 flashforge/
 ├── hFlashForgeLogo.svg          # Vektörel SVG uygulama ve marka logosu
 ├── hFlashForgeLogo.png          # PNG formatında uygulama simgesi / favicon
+├── screenshot.png               # Web Dashboard arayüz ekran görüntüsü
 ├── flashforge_panel.py          # FastAPI tabanlı Web Sunucu (Backend) & Kamera Proxy Dağıtıcısı
 ├── config.json                  # Yazıcı bağlantı ve kalıcı ince ayarlar (Otomatik oluşturulur)
 ├── templates/
