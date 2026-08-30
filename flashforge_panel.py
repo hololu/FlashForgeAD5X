@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -8,6 +8,7 @@ import socket
 import os
 import json
 import urllib.request
+import threading
 from collections import deque
 from datetime import datetime
 
@@ -465,6 +466,26 @@ async def startup():
     watch_task = asyncio.create_task(watch_loop())
 
 
+@app.get("/hFlashForgeLogo.svg")
+async def get_logo_svg():
+    svg_path = os.path.join(BASE_DIR, "hFlashForgeLogo.svg")
+    if os.path.exists(svg_path):
+        return FileResponse(svg_path, media_type="image/svg+xml")
+    return Response(status_code=404)
+
+
+@app.get("/hFlashForgeLogo.png")
+@app.get("/favicon.ico")
+async def get_logo_png():
+    png_path = os.path.join(BASE_DIR, "hFlashForgeLogo.png")
+    if os.path.exists(png_path):
+        return FileResponse(png_path, media_type="image/png")
+    svg_path = os.path.join(BASE_DIR, "hFlashForgeLogo.svg")
+    if os.path.exists(svg_path):
+        return FileResponse(svg_path, media_type="image/svg+xml")
+    return Response(status_code=404)
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     path = os.path.join(TEMPLATES_DIR, "dashboard.html")
@@ -491,6 +512,8 @@ async def api_command(command: dict):
         "home": b"~G28\r\n",
         "led_on": b"~M146 r255 g255 b255 f0\r\n",
         "led_off": b"~M146 r0 g0 b0 f0\r\n",
+        "reboot": b"~M999\r\n",
+        "unlock": b"~M602\r\n",
     }
     c = command.get("command")
     
@@ -658,22 +681,112 @@ async def get_settings():
 @app.post("/api/settings")
 async def post_settings(settings: SettingsModel):
     save_config(settings.host, settings.port, settings.serial, settings.check_code)
+    try:
+        camera_broadcaster.reset()
+    except Exception:
+        pass
     # Trigger an immediate background check to reflect new settings
     asyncio.create_task(refresh_once())
     return {"ok": True}
 
 
+@app.post("/api/service/restart")
+async def api_service_restart():
+    """Restarts background polling tasks, resets camera broadcaster, releases sockets and forces an immediate reconnect."""
+    global watch_task
+    try:
+        # Reset camera broadcaster
+        try:
+            camera_broadcaster.reset()
+        except Exception:
+            pass
+        
+        # Release printer session if locked
+        try:
+            await send_command(b"~M602\r\n")
+        except Exception:
+            pass
+            
+        # Cancel and recreate watch task
+        if watch_task and not watch_task.done():
+            watch_task.cancel()
+        watch_task = asyncio.create_task(watch_loop())
+        
+        # Trigger immediate refresh
+        asyncio.create_task(refresh_once())
+        return {"ok": True, "message": "Panel arka plan servisleri ve kamera yayıncısı başarıyla yeniden başlatıldı."}
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"Servisler yeniden başlatılamadı: {e}"}, status_code=500)
+
+
+@app.post("/api/printer/restart")
+async def api_printer_restart():
+    """Sends firmware / machine restart command (~M999 / FIRMWARE_RESTART) to the printer."""
+    try:
+        # Send M999 with login/logout
+        raw = await send_command(b"~M999\r\n")
+        try:
+            await send_command(b"~FIRMWARE_RESTART\r\n")
+        except Exception:
+            pass
+        
+        # Reset backend state & camera
+        try:
+            camera_broadcaster.reset()
+        except Exception:
+            pass
+        asyncio.create_task(refresh_once())
+        
+        return {"ok": True, "message": "Yazıcı yeniden başlatma komutu (~M999) gönderildi."}
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"Yazıcıya komut gönderilemedi: {e}"}, status_code=500)
+
+
+@app.post("/api/printer/unlock")
+async def api_printer_unlock():
+    """Releases active TCP control session (~M602) to unblock the printer."""
+    try:
+        raw = await send_command(b"~M602\r\n")
+        res_str = raw.decode("utf-8", errors="ignore") if isinstance(raw, bytes) else str(raw)
+        return {"ok": True, "message": "Yazıcı kontrol oturumu serbest bırakıldı (~M602).", "response": res_str.strip()}
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"Oturum serbest bırakılamadı: {e}"}, status_code=500)
+
+
+@app.post("/api/camera/restart")
+async def api_camera_restart():
+    """Resets the camera broadcaster and forces re-establishing stream to printer."""
+    try:
+        camera_broadcaster.reset()
+        return {"ok": True, "message": "Kamera proxy servisi sıfırlandı ve yeniden başlatıldı."}
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"Kamera servisi sıfırlanamadı: {e}"}, status_code=500)
+
+
 class CameraBroadcaster:
     def __init__(self):
         self.subscribers = set()
-        self.task = None
+        self.thread = None
+        self.stop_event = threading.Event()
         self.lock = asyncio.Lock()
-        self.content_type = "multipart/x-mixed-replace; boundary=ffserver"
+        self.latest_frame = None
+        self.latest_frame_time = None
+        self.is_connected = False
+        self.last_error = None
+        self.loop = None
 
-    async def _stream_loop(self):
-        camera_url = f"http://{PRINTER_HOST}:8080/?action=stream"
+    def reset(self):
+        """Reset connection on host change or manual reconnect."""
+        self.stop_event.set()
+        self.thread = None
+        self.is_connected = False
+        self.latest_frame = None
+
+    def _worker(self, host, loop):
+        camera_url = f"http://{host}:8080/?action=stream"
         
-        def open_conn():
+        while not self.stop_event.is_set():
+            resp = None
             try:
                 req = urllib.request.Request(
                     camera_url,
@@ -682,78 +795,136 @@ class CameraBroadcaster:
                         "Accept": "*/*"
                     }
                 )
-                resp = urllib.request.urlopen(req, timeout=5)
-                c_type = resp.headers.get("Content-Type") or "multipart/x-mixed-replace; boundary=ffserver"
-                return resp, c_type
-            except Exception as e:
-                print(f"Broadcaster connection error: {e}")
-                return None, None
-
-        loop = asyncio.get_running_loop()
-        resp, c_type = await loop.run_in_executor(None, open_conn)
-        if not resp:
-            async with self.lock:
-                self.task = None
-            return
-
-        self.content_type = c_type
-
-        def sync_read():
-            try:
-                while True:
-                    chunk = resp.read(4096)
+                resp = urllib.request.urlopen(req, timeout=6)
+                self.is_connected = True
+                self.last_error = None
+                
+                buffer = bytearray()
+                while not self.stop_event.is_set():
+                    chunk = resp.read(8192)
                     if not chunk:
                         break
-                    yield chunk
+                    buffer.extend(chunk)
+                    
+                    while True:
+                        start = buffer.find(b"\xff\xd8")
+                        if start == -1:
+                            if len(buffer) > 131072:
+                                buffer = buffer[-8192:]
+                            break
+                        end = buffer.find(b"\xff\xd9", start + 2)
+                        if end == -1:
+                            if start > 0:
+                                buffer = buffer[start:]
+                            break
+                        jpg = bytes(buffer[start:end+2])
+                        buffer = buffer[end+2:]
+                        
+                        self.latest_frame = jpg
+                        self.latest_frame_time = datetime.now()
+                        
+                        # Deliver frame to async subscribers
+                        frame_payload = (
+                            b"--frame\r\n"
+                            b"Content-Type: image/jpeg\r\n"
+                            b"Content-Length: " + str(len(jpg)).encode("ascii") + b"\r\n\r\n"
+                            + jpg + b"\r\n"
+                        )
+                        loop.call_soon_threadsafe(self._dispatch_frame, frame_payload)
+                        
+            except Exception as e:
+                self.last_error = str(e)
+                self.is_connected = False
+            finally:
+                if resp:
+                    try:
+                        resp.close()
+                    except Exception:
+                        pass
+                        
+            # If stopped, exit worker
+            if self.stop_event.is_set():
+                break
+            # Backoff before reconnect
+            self.stop_event.wait(2.0)
+            
+        self.is_connected = False
+        loop.call_soon_threadsafe(self._notify_closed)
+
+    def _dispatch_frame(self, frame_payload):
+        dead = set()
+        for q in list(self.subscribers):
+            try:
+                if q.full():
+                    try:
+                        q.get_nowait()
+                    except Exception:
+                        pass
+                q.put_nowait(frame_payload)
+            except Exception:
+                dead.add(q)
+        self.subscribers -= dead
+
+    def _notify_closed(self):
+        for q in list(self.subscribers):
+            try:
+                q.put_nowait(None)
             except Exception:
                 pass
-            finally:
+
+    async def subscribe(self):
+        q = asyncio.Queue(maxsize=5)
+        self.loop = asyncio.get_running_loop()
+        
+        async with self.lock:
+            # If we have a cached frame, send it immediately
+            if self.latest_frame:
+                frame_payload = (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n"
+                    b"Content-Length: " + str(len(self.latest_frame)).encode("ascii") + b"\r\n\r\n"
+                    + self.latest_frame + b"\r\n"
+                )
                 try:
-                    resp.close()
+                    q.put_nowait(frame_payload)
                 except Exception:
                     pass
 
-        gen = sync_read()
-        try:
-            while True:
-                async with self.lock:
-                    if not self.subscribers:
-                        break
-                chunk = await loop.run_in_executor(None, lambda: next(gen, None))
-                if chunk is None:
-                    break
-                
-                async with self.lock:
-                    dead = set()
-                    for q in list(self.subscribers):
-                        try:
-                            if q.full():
-                                try:
-                                    q.get_nowait()
-                                except Exception:
-                                    pass
-                            q.put_nowait(chunk)
-                        except Exception:
-                            dead.add(q)
-                    self.subscribers -= dead
-        finally:
-            async with self.lock:
-                self.task = None
-
-    async def subscribe(self):
-        q = asyncio.Queue(maxsize=15)
-        async with self.lock:
-            if self.task is None or self.task.done():
-                self.task = asyncio.create_task(self._stream_loop())
             self.subscribers.add(q)
+            if self.thread is None or not self.thread.is_alive():
+                self.stop_event.clear()
+                self.thread = threading.Thread(
+                    target=self._worker,
+                    args=(PRINTER_HOST, self.loop),
+                    daemon=True,
+                    name="CameraBroadcasterThread"
+                )
+                self.thread.start()
         return q
 
     async def unsubscribe(self, q):
         async with self.lock:
             self.subscribers.discard(q)
+            if not self.subscribers:
+                self.stop_event.set()
+                self.thread = None
 
 
 camera_broadcaster = CameraBroadcaster()
+
+
+@app.get("/api/camera/status")
+async def api_camera_status():
+    """Returns the current camera proxy status and direct URL."""
+    return {
+        "ok": True,
+        "connected": camera_broadcaster.is_connected,
+        "printer_host": PRINTER_HOST,
+        "direct_stream_url": f"http://{PRINTER_HOST}:8080/?action=stream",
+        "direct_snapshot_url": f"http://{PRINTER_HOST}:8080/?action=snapshot",
+        "last_error": camera_broadcaster.last_error,
+        "has_frame": camera_broadcaster.latest_frame is not None
+    }
 
 
 @app.get("/api/camera/stream")
@@ -783,32 +954,68 @@ async def api_camera_stream():
     }
     return StreamingResponse(
         client_generator(),
-        media_type=camera_broadcaster.content_type,
+        media_type="multipart/x-mixed-replace; boundary=frame",
         headers=headers
     )
 
 
-
 @app.get("/api/camera/snapshot")
 async def api_camera_snapshot():
-    """Proxy a single camera frame snapshot from the printer."""
+    """Proxy a single camera frame snapshot from the printer or latest broadcaster cache."""
+    # 1. Use cached frame if recent (within last 3 seconds)
+    if camera_broadcaster.latest_frame and camera_broadcaster.latest_frame_time:
+        age = (datetime.now() - camera_broadcaster.latest_frame_time).total_seconds()
+        if age < 3.0:
+            return Response(
+                content=camera_broadcaster.latest_frame,
+                media_type="image/jpeg",
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+            )
+
     camera_url = f"http://{PRINTER_HOST}:8080/?action=snapshot"
 
     def fetch_snapshot():
+        # Try ?action=snapshot
         try:
             req = urllib.request.Request(
                 camera_url,
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) FlashForge-Panel/1.0"}
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) FlashForge-Panel/1.0", "Accept": "*/*"}
+            )
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = resp.read()
+                if data and len(data) > 1000 and data.startswith(b"\xff\xd8"):
+                    return data
+        except Exception:
+            pass
+
+        # Fallback: Read 1 frame from ?action=stream
+        try:
+            stream_url = f"http://{PRINTER_HOST}:8080/?action=stream"
+            req = urllib.request.Request(
+                stream_url,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) FlashForge-Panel/1.0", "Accept": "*/*"}
             )
             with urllib.request.urlopen(req, timeout=5) as resp:
-                return resp.read()
+                buf = bytearray()
+                for _ in range(80):
+                    c = resp.read(8192)
+                    if not c:
+                        break
+                    buf.extend(c)
+                    start = buf.find(b"\xff\xd8")
+                    if start != -1:
+                        end = buf.find(b"\xff\xd9", start + 2)
+                        if end != -1:
+                            return bytes(buf[start:end+2])
         except Exception as e:
-            print(f"Camera snapshot error: {e}")
-            return None
+            print(f"Camera snapshot fallback error: {e}")
+        return None
 
     loop = asyncio.get_running_loop()
     img_bytes = await loop.run_in_executor(None, fetch_snapshot)
     if img_bytes:
+        camera_broadcaster.latest_frame = img_bytes
+        camera_broadcaster.latest_frame_time = datetime.now()
         return Response(
             content=img_bytes,
             media_type="image/jpeg",

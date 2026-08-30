@@ -1,114 +1,148 @@
 # FlashForge AD5X Web Dashboard & Home Assistant Entegrasyonu
 
-Bu proje, **FlashForge AD5X (Adventurer 5M / 5M Pro)** 3D yazıcıları için tasarlanmış modern bir **Web Kontrol Paneli (Web Dashboard)** ve **Home Assistant Özel Bileşeni (Custom Component)** içermektedir.
+<p align="center">
+  <img src="hFlashForgeLogo.svg" width="140" alt="FlashForge AD5X Logo"/>
+</p>
 
-Yazıcının TCP kontrol portu (8899) ve HTTP detay/sensör portu (8898) protokolleri tersine mühendislik yöntemleriyle çözümlenerek; izleme, kontrol ve baskı sırasındaki ince ayarların (Live Tuning) yönetilmesi tek bir çatı altında birleştirilmiştir.
+<p align="center">
+  <strong>FlashForge AD5X (Adventurer 5M / 5M Pro)</strong> 3D yazıcıları için modern, responsive <strong>Web Kontrol Paneli (Web Dashboard)</strong> ve tam donanımlı <strong>Home Assistant Özel Bileşeni (Custom Component)</strong>.
+</p>
 
 ---
-![Ana Ekran](https://git.mustafaozkaya.tr/hololu/FlashForgeAD5X/raw/branch/main/ad5x/flashforge_ad5x.jpg)
+
+Yazıcının **TCP kontrol portu (8899)**, **HTTP detay/sensör portu (8898)** ve **MJPEG kamera portu (8080)** protokolleri çözümlenerek; durum izleme, canlı kamera yayını, donanım sensörleri, IFS filament yönetimi, makro kontroller ve baskı sırasındaki canlı ince ayarlar (Live Tuning) tek bir çatı altında birleştirilmiştir.
+
 ---
+
 ## 📂 Proje Yapısı
-
-Proje dosyaları ve klasör mimarisi aşağıdaki şekildedir:
 
 ```text
 flashforge/
-├── flashforge_panel.py      # FastAPI tabanlı Web sunucu (Backend) & Kamera Proxy Dağıtıcısı
-├── config.json              # Yazıcı bağlantı ve kalıcı ince ayarlar (Otomatik oluşturulur)
+├── hFlashForgeLogo.svg          # Vektörel SVG uygulama ve marka logosu
+├── hFlashForgeLogo.png          # PNG formatında uygulama simgesi / favicon
+├── flashforge_panel.py          # FastAPI tabanlı Web Sunucu (Backend) & Kamera Proxy Dağıtıcısı
+├── config.json                  # Yazıcı bağlantı ve kalıcı ince ayarlar (Otomatik oluşturulur)
 ├── templates/
-│   └── dashboard.html       # Modern, responsive ve premium Web Arayüzü (Frontend)
+│   └── dashboard.html           # Modern, responsive ve premium Web Arayüzü (Frontend)
 ├── custom_components/
-│   └── flashforge_ad5x/     # Home Assistant özel entegrasyonu
-│       ├── __init__.py      # Entegrasyon başlangıç ve koordinatör yapılandırması
-│       ├── api.py           # HA için özel FlashForge API istemcisi
-│       ├── const.py         # Sabitler (Domain, scan interval vb.)
-│       ├── config_flow.py   # HA Arayüzünden kurulum akışı (IP, port, LAN şifresi vb.)
-│       ├── manifest.json    # HA entegrasyon özellikleri ve bağımlılıkları
-│       ├── sensor.py        # Sıcaklık (nozul, yatak, hazne), katman, ilerleme, filament slotları, TVOC, disk alanı ve donanım sensörleri
-│       ├── light.py         # Kabin aydınlatma kontrolü (HTTP ve TCP tabanlı)
-│       ├── button.py        # Home, Duraklat, Devam Et, Durdur butonları
-│       └── strings.json     # Çeviri tanımları
-└── README.md                # Bu belgeleme dosyası
+│   └── flashforge_ad5x/         # Home Assistant özel entegrasyonu
+│       ├── __init__.py          # Entegrasyon başlangıç ve koordinatör yapılandırması
+│       ├── api.py               # HA için asenkron FlashForge API istemcisi
+│       ├── const.py             # Sabitler (Domain, scan interval vb.)
+│       ├── config_flow.py       # HA arayüzünden kurulum ve bağlantı akışı
+│       ├── manifest.json        # HA entegrasyon meta verileri ve bağımlılıkları
+│       ├── sensor.py            # Sıcaklıklar, katman, ilerleme, TVOC, disk alanı ve donanım sensörleri
+│       ├── light.py             # Kabin aydınlatma kontrolü (HTTP ve TCP tabanlı)
+│       ├── button.py            # Home, Duraklat, Devam, Durdur, Oturumu Sıfırla (M602), Yeniden Başlat (M999)
+│       ├── camera.py            # Canlı MJPEG kamera ve anlık görüntü yakalama entegrasyonu
+│       └── strings.json         # Türkçe/İngilizce dil ve çeviri tanımları
+├── homeassistant_guide.md       # Home Assistant detaylı kurulum, Lovelace kartları ve sorun giderme rehberi
+└── README.md                    # Proje dokümantasyonu
 ```
 
 ---
 
-## ⚙️ Çalışma Mantığı ve Özellikler
+## ⚙️ Temel Özellikler ve Çalışma Mantığı
 
-### 1. Güvenli Kontrol Protokolü (Session Handshake)
-FlashForge yazıcıları güvenlik nedeniyle TCP portu (8899) üzerinden gönderilen kontrol komutlarını doğrudan kabul etmez. Kontrol komutu gönderilmeden önce aynı TCP soket oturumunda login (`~M601 S1\r\n`) yapılması, işlem bittikten sonra ise oturumun serbest bırakılması (`~M602\r\n`) gerekir. 
-* **Backend Çözümü:** `flashforge_panel.py` içindeki soket yönetim motoru, gönderilen komutun türünü (sorgu veya kontrol) otomatik olarak ayırt eder. Kontrol komutlarında soket açıldıktan hemen sonra arka planda el sıkışması gerçekleştirir ve işi bittiğinde oturumu sonlandırarak diğer ağ istemcilerinin (örneğin slicer yazılımları) yazıcıyı kilitlemesini önler.
-
-### 2. Sunucu Üzerinden Canlı Kamera Proxy ve Eş Zamanlı Yayın (`CameraBroadcaster`)
-Yazıcının dâhili `mjpg-streamer` kamera sunucusu donanımsal olarak aynı anda yalnızca 1 istemci bağlantısını kabul eder. Ayrıca dış ağdan veya HTTPS arkasından erişimde cihazın yerel IP'sine (port 8080) bağlanma zorunluluğu yayın hatalarına sebep olabilmektedir.
-* **Sunucu Proxy (`/api/camera/stream`):** Kamera yayını sunucu üzerinden iletilir. Dış ağdan, VPN veya reverse proxy üzerinden bağlanan kullanıcılar yerel yazıcı IP'sine ihtiyaç duymadan yayını izler.
-* **Eş Zamanlı Yayıncı (Multi-Client Fan-Out):** Arka planda çalışan `CameraBroadcaster` sınıfı yazıcı ile **tek bir aktif kamera bağlantısı** sürdürür ve gelen MJPEG karelerini bağlı tüm istemcilere (telefon, bilgisayar, tablet) aynı anda yayınlar.
-* **Sıfır Ekstra Bağımlılık (Standard Library):** Kamera proxy ve snapshot (`/api/camera/snapshot`) mekanizması Python'ın standart kütüphanesi (`urllib.request`) ile hazırlanmıştır, ekstra üçüncü taraf bağımlılığı gerektirmez.
-
-### 3. Etkileşimli IFS (Filament İstasyonu) Slot Seçimi & Değişimi
-Adventurer 5M Pro / AD5X modellerindeki 4-slotlu Filament İstasyonu (IFS) arayüzde etkileşimli hale getirilmiştir.
-* **Filament Değiştirme:** Kart üzerindeki Slot 1, 2, 3 veya 4 butonlarına tıklandığında onay verilerek yazıcıya ilgili slot değişim G-kodları (`T0`, `T1`, `T2`, `T3`) gönderilir ve aktif filament otomatik olarak değiştirilir.
-
-### 4. Baskı İnce Ayarları (Live Tuning) Takibi
-Yazıcının standart HTTP ve TCP durum sorguları; baskı hızı çarpanı, fan gücü ve nozul Z-ofset (babystepping) gibi anlık ince ayar durumlarını dışarıya raporlamaz.
-* **Backend Çözümü:** Panel üzerinden gönderilen ince ayar komutları (`M220`, `M106`, `SET_GCODE_OFFSET`, `M290` ve `G29.1`) sunucu tarafında regex filtreleriyle yakalanır, durum güncellenir ve `config.json` dosyasına kaydedilir. Arayüz sorgu yaptığında bu değerler arayüze senkronize edilerek sayfa yenilense bile son ayarlanan ince ayarların ekranda kalması sağlanır.
-
-### 5. Baskı Bitiminde Otomatik Sıfırlama
-Baskı tamamlandığında veya iptal edildiğinde yazıcı donanımsal olarak eski Z-ofset veya hız çarpanı değerlerini koruyabilir, bu da bir sonraki baskıda tablanın nozula çarpmasına veya baskı hatalarına yol açabilir.
-* **Backend Çözümü:** Yazıcının durumu `BUILDING_FROM_SD` veya `PAUSED` durumundan `READY` (Boşta) durumuna geçtiğinde; **Z-Ofset** `0.00 mm`, **Hız Çarpanı** `%100` ve **Fan Gücü** `%0` (Kapalı) değerlerine otomatik olarak sıfırlanır ve kalıcı hafızaya kaydedilir.
-
-### 6. Detaylı Donanım ve Çevre Durumu Takibi (HTTP 8898 /detail API)
-Yazıcının `/detail` REST API'sinden gelen tüm zengin donanım ve çevre verileri çözümlenmiştir:
-* **Backend & Panel Çözümü:** Web arayüzüne **Sistem & Donanım Bilgileri** kartı eklenerek; Hazne Sıcaklığı (anlık/hedef), TVOC Hava Kalitesi, Sol/Sağ Soğutma Fanları, Odacık Fanı, Kapı/Kasa Işığı durumları, Disk Alanı, Toplam Çalışma Süresi, Toplam Filament Tüketimi, Nozul Çapı ve IP/MAC bilgileri gerçek zamanlı olarak izlenebilir hale getirilmiştir.
-* **Home Assistant Çözümü:** Entegrasyona **14 adet yeni sensör** eklenerek bu veriler akıllı ev otomasyonlarında kullanılabilir hale getirilmiştir (örneğin hava kalitesi TVOC yükseldiğinde havalandırmanın çalıştırılması veya hazne sıcaklığına göre bildirim gönderilmesi). Kasa LED ışığının açık/kapalı durumu da HTTP API `light_status` ile senkronize edilmiştir.
+### 1. 📷 3 Farklı Canlı Kamera Akış Modu (Camera Streaming)
+Yazıcının dâhili `mjpg-streamer` kamera servisi donanımsal olarak tek bağlantı sınırı (single-client limit) içerebilir. Panel, her türlü ağ koşuluna uyum sağlayacak 3 farklı mod sunar:
+* **🌐 Doğrudan Mod (Port 8080) [Varsayılan]:** Tarayıcınız yerel ağdayken doğrudan `http://<YAZICI_IP>:8080/?action=stream` adresine bağlanır. Sunucuya 0% yük bindirir, sıfır gecikmeyle (native 30fps) kristal netliğinde yayın verir.
+* **🔄 Sunucu Proxy Modu (`/api/camera/stream`):** Dış ağdan, VPN veya Reverse Proxy arkasından erişen kullanıcılar için yayını `CameraBroadcasterThread` motoru üzerinden proxy'ler ve birden fazla istemciye aynı anda dağıtır.
+* **📸 Snapshot Modu (`/api/camera/snapshot`):** Düşük bant genişliği veya stabil olmayan bağlantılarda saniyede 1 kare (1 fps) anlık fotoğraf çeker.
+* **Tam Ekran Desteği:** Kamera akışını tek tıkla tam ekran moduna alabilirsiniz.
 
 ---
 
-## 🚀 Devreye Alma ve Çalıştırma
+### 2. 🛠️ Sistem & Servis Yönetimi (Settings Modal)
+Web arayüzünün sağ üstündeki **⚙️ Ayarlar** penceresi ve **Uçbirim (G-Code Konsolu)** üzerinden kritik operasyonlar tek tıkla yürütülür:
+* **🔄 Servisleri Yeniden Başlat (`/api/service/restart`):** Panel arka plan sorgulayıcısını (`watch_loop`), soket havuzunu ve kamera yayıncısını temizleyip baştan başlatır.
+* **📷 Kamerayı Sıfırla (`/api/camera/restart`):** Askıda kalan kamera istemci soketlerini kapatır ve yeni bağlantı açar.
+* **🔓 Oturumu Serbest Bırak (`/api/printer/unlock` - `~M602`):** FlashForge yazıcısı kilitli bir oturumda takılı kaldığında soket kilidini açar.
+* **⚠️ Yazıcıyı Yeniden Başlat (`/api/printer/restart` - `~M999`):** Yazıcı anakartına ve firmware'ine yeniden başlatma sinyali gönderir.
 
-### A. Web Dashboard Kurulumu ve Başlatılması
+---
 
-1. **Bağımlılıkların Kurulması:**
-   Sisteminizde Python 3.9+ kurulu olduğundan emin olun. Gerekli kütüphaneleri yükleyin:
+### 3. 🎛️ Canlı İnce Ayar (Live Tuning) & Otomatik Sıfırlama
+* **Babystepping (Z-Ofset):** Baskı sırasında tablanın ilk katman mesafesini `0.01 mm`, `0.05 mm` veya `0.10 mm` adımlarla canlı olarak ayarlama. `SET_GCODE_OFFSET` ve `M290` komutları ardışık gönderilerek hem Klipper hem Marlin uyumluluğu sağlanır.
+* **Baskı Hızı Çarpanı (Feedrate):** `%5` hassasiyetli sürgü ile `M220 S{yüzde}` komutu gönderimi.
+* **Kabin Soğutma Fanı:** `%` sürgü değeriyle `M106 S{değer}` komutu üzerinden anlık fan devri ayarı.
+* **Baskı Bitiminde Otomatik Sıfırlama:** Baskı tamamlandığında veya iptal edildiğinde (`READY` moduna geçildiğinde); Z-Ofset `0.00 mm`, Hız `%100` ve Fan `%0` değerlerine otomatik olarak çekilir.
+
+---
+
+### 4. 🧵 Etkileşimli IFS (Filament İstasyonu) Yönetimi
+* AD5X / Adventurer 5M Pro 4-slotlu Filament İstasyonu durumunu (Slot rengi, malzeme tipi, yüklü slot) görselleştirir.
+* Arayüzdeki slot kartına tıklandığında onay istenerek yazıcıya otomatik `T0`, `T1`, `T2`, `T3` filament değiştirme komutu gönderilir.
+* "Filamenti Çıkar" butonuyla aktif slot serbest bırakılabilir.
+
+---
+
+### 5. 📊 Zengin Donanım & Sensör Telemetrisi (HTTP 8898 /detail API)
+* **Kabin & Hazne Sıcaklığı:** Anlık ve hedef sıcaklık takibi.
+* **TVOC Hava Kalitesi:** Hazne içi VOC gazı seviyesi (`ppb`).
+* **Fan Hızları:** Sol Fan, Sağ/Ana Soğutma Fanı ve Hazne Fanı devirleri (`%`).
+* **Kapı & LED Durumu:** Kapı açık/kapalı algılayıcısı ve kabin aydınlatma durumu.
+* **İstatistikler:** Kalan dahili disk alanı (`GB`), Toplam çalışma süresi (`saat`), Toplam tüketilen filament (`metre`), Nozul modeli.
+
+---
+
+### 6. 🏠 Home Assistant Entegrasyonu
+Bileşen Home Assistant içerisinde tam teşekküllü bir cihaz olarak tanımlanır:
+* **Sensörler (`sensor`):** Nozul, Yatak, Hazne sıcaklıkları, Katman, İlerleme, Baskı durumu, TVOC hava kalitesi, 4 adet IFS slot durumları, Kalan disk alanı vb.
+* **Aydınlatma (`light`):** Kasa LED ışığını açıp kapatma.
+* **Kamera (`camera`):** `camera.flashforge_ad5x_kamera` varlığı ile doğrudan Lovelace kartlarında canlı MJPEG yayın ve anlık önizleme.
+* **Kontrol Butonları (`button`):** Home, Duraklat, Devam, Acil Durdurma, Oturumu Sıfırla (M602), Yazıcıyı Yeniden Başlat (M999).
+
+---
+
+## 🚀 Kurulum ve Çalıştırma
+
+### A. Web Dashboard
+
+1. **Gereksinimleri Yükleyin:**
+   Python 3.9+ kurulu ortamda:
    ```bash
    pip install fastapi uvicorn jinja2 pydantic
    ```
 
-2. **Çevre Değişkenleri (Opsiyonel):**
-   Uygulama varsayılan olarak `config.json` dosyasını arar. Eğer bu dosya yoksa, yazıcı bağlantı bilgilerini çevre değişkenlerinden alabilir:
-   - `FLASHFORGE_HOST`: Yazıcının IP Adresi (Örn: `192.168.1.12`)
-   - `FLASHFORGE_PORT`: Yazıcı Kontrol Portu (Varsayılan: `8899`)
-   - `FLASHFORGE_SERIAL`: Yazıcı Seri No (IFS filament bilgisi için gerekli)
-   - `FLASHFORGE_CHECK_CODE`: Yazıcı LAN Şifresi (IFS filament bilgisi için gerekli)
-
-3. **Sunucunun Başlatılması:**
-   Terminal veya PowerShell üzerinden proje kök dizininde şu komutu çalıştırın:
+2. **Paneli Başlatın:**
    ```bash
-   python3 -m uvicorn flashforge_panel:app --host 0.0.0.0 --port 8000
+   python -m uvicorn flashforge_panel:app --host 0.0.0.0 --port 8000
    ```
 
-4. **Kullanıcı Arayüzüne Erişim:**
-   Tarayıcınızdan `http://localhost:8000` (veya sunucu IP'si üzerinden `http://<sunucu_ip>:8000`) adresine giderek kontrol paneline erişebilirsiniz. Sağ üst köşedeki **Ayarlar** (çark) simgesinden yazıcı IP adresi ve LAN kimlik bilgilerini canlı olarak güncelleyebilirsiniz.
+3. **Erişim ve Ayarlar:**
+   * Tarayıcınızdan `http://localhost:8000` (veya `http://<SUNUCU_IP>:8000`) adresini açın.
+   * Sağ üstteki **⚙️ Ayarlar** butonuna tıklayarak Yazıcı IP adresinizi ve LAN şifrenizi (Check Code) girip kaydedin.
 
 ---
 
-### B. Home Assistant Entegrasyonu Kurulumu
+### B. Home Assistant
 
-1. Proje içindeki `custom_components/flashforge_ad5x` klasörünü Home Assistant kurulumunuzun içindeki `/config/custom_components/` dizinine kopyalayın.
-2. Klasör yapısının `/config/custom_components/flashforge_ad5x/manifest.json` şeklinde olduğundan emin olun.
-3. Home Assistant sunucunuzu yeniden başlatın.
-4. HA arayüzünden **Ayarlar -> Cihazlar & Hizmetler -> Entegrasyon Ekle** adımlarını izleyin.
-5. Listeden **FlashForge AD5X** entegrasyonunu arayın ve seçin.
-6. Gelen yapılandırma penceresinde yazıcınızın IP adresini, Portunu (8899), Seri Numarasını ve LAN modundaki şifresini (Check Code) girerek kurulumu tamamlayın.
+1. Projedeki `custom_components/flashforge_ad5x` klasörünü Home Assistant'ın `/config/custom_components/` dizini altına kopyalayın.
+2. Home Assistant'ı yeniden başlatın.
+3. **Ayarlar ➔ Cihazlar ve Hizmetler ➔ Entegrasyon Ekle** bölümünden **FlashForge AD5X** entegrasyonunu seçin ve IP adresinizi girerek kurulumu tamamlayın.
+4. Detaylı Lovelace panelleri ve kart örnekleri için [`homeassistant_guide.md`](homeassistant_guide.md) kılavuzunu inceleyebilirsiniz.
 
 ---
 
-## 🛠️ İnce Ayar (Tuning) Komut Referansları
-Dashboard üzerinden gönderilen ve arka planda desteklenen G-kod karşılıkları:
+## 📜 Desteklenen G-Kod ve Komut Referansı
 
-* **Z-Ofset Babystepping:** `SET_GCODE_OFFSET Z_ADJUST={değer} MOVE=1` ve `M290 Z{değer}` komutları ardışık gönderilerek hem Klipper hem Marlin uyumluluğu sağlanır.
-* **IFS Slot Değişimi:** `T0`, `T1`, `T2`, `T3` komutları ile ilgili filament slotuna otomatik geçiş yapılır.
-* **Baskı Hızı Çarpanı (Feedrate):** `M220 S{yüzde}` komutu gönderilir. Sürgü adımları %5 hassasiyetle çalışır.
-* **Soğutma Fanı Gücü:** `%` olarak girilen değer `S0` ile `S255` arasına ölçeklenerek `M106 S{değer}` şeklinde gönderilir.
-* **Kabin LED Kontrolü:** LED açma için `M146 r255 g255 b255 f0`, kapatma için `M146 r0 g0 b0 f0` komutları kullanılır.
+| İşlem | Komut | Açıklama |
+| :--- | :--- | :--- |
+| **Login (Kontrol Al)** | `~M601 S1` | TCP port 8899 üzerinde oturum açar |
+| **Logout (Serbest Bırak)** | `~M602` | Kilitli oturumu serbest bırakır |
+| **Reboot (Yeniden Başlat)** | `~M999` / `~FIRMWARE_RESTART` | Anakart ve firmware yeniden başlatma |
+| **Home (Sıfırlama)** | `~G28` | Tüm eksenleri referans konumuna gönderir |
+| **Baskı Duraklat** | `~M25` | Devam eden baskıyı duraklatır |
+| **Baskı Devam** | `~M24` | Duraklatılan baskıyı sürdürür |
+| **Baskı İptal / Durdur** | `~M26` | Baskıyı sonlandırır |
+| **Z-Ofset Ayarla** | `SET_GCODE_OFFSET Z_ADJUST={val} MOVE=1` + `M290 Z{val}` | Babystepping mikron düzeyinde Z ayarı |
+| **Baskı Hızı Çarpanı** | `~M220 S{yüzde}` | Hızı dinamik olarak ayarlar (örn: `S120`) |
+| **Fan Devri** | `~M106 S{0-255}` | Soğutma fanı gücünü ayarlar |
+| **Kasa Işığı (LED)** | `~M146 r255 g255 b255 f0` / `~M146 r0 g0 b0 f0` | LED aç / kapat |
+| **IFS Slot Seçimi** | `~T0`, `~T1`, `~T2`, `~T3` | İlgili filamente otomatik geçiş |
 
+---
+
+## 📄 Lisans
+Bu proje açık kaynaklı olup topluluk kullanımına ve geliştirmelerine açıktır.

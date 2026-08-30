@@ -44,6 +44,18 @@ BUTTON_DESCRIPTIONS: list[FlashForgeButtonDescription] = [
         icon="mdi:stop-circle",
         command="~M26\r\n",
     ),
+    FlashForgeButtonDescription(
+        key="reboot",
+        name="Yazıcıyı Yeniden Başlat (Restart)",
+        icon="mdi:restart",
+        command="~M999\r\n",
+    ),
+    FlashForgeButtonDescription(
+        key="unlock",
+        name="Oturumu Sıfırla (Unlock)",
+        icon="mdi:lock-open-variant",
+        command="~M602\r\n",
+    ),
 ]
 
 

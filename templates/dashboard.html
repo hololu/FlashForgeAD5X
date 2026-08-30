@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FlashForge AD5X Kontrol Paneli</title>
+    <!-- Favicons and Brand Icons -->
+    <link rel="icon" type="image/svg+xml" href="/hFlashForgeLogo.svg">
+    <link rel="alternate icon" type="image/png" href="/hFlashForgeLogo.png">
+    <link rel="apple-touch-icon" href="/hFlashForgeLogo.png">
     <!-- Modern web typography -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -311,6 +315,47 @@
             text-align: center;
             padding: 20px;
             gap: 8px;
+        }
+
+        .camera-mode-toggle-group {
+            display: flex;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 2px;
+            gap: 2px;
+        }
+
+        .cam-mode-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-weight: 500;
+            padding: 3px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-family: inherit;
+        }
+
+        .cam-mode-btn:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .cam-mode-btn.active {
+            background: var(--accent-primary);
+            color: #ffffff;
+            box-shadow: 0 0 8px var(--accent-glow);
+        }
+
+        select, select option {
+            background-color: #111827 !important;
+            color: #f3f4f6 !important;
         }
 
         /* MAIN STATE PANEL (Left side) */
@@ -1465,12 +1510,8 @@
         <!-- HEADER -->
         <header>
             <div class="header-logo-group">
-                <div class="printer-icon-glow">
-                    <!-- 3D Printer Inline SVG Icon -->
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M4 18h16M4 22h16M2 14h20M2 10h20"></path>
-                        <path d="m6 10 6-6 6 6M12 4v6"></path>
-                    </svg>
+                <div class="printer-icon-glow" style="background: rgba(0, 162, 222, 0.08); border: 1px solid rgba(0, 162, 222, 0.2); padding: 4px; border-radius: 8px;">
+                    <img src="/hFlashForgeLogo.svg" alt="FlashForge Logo" style="width: 26px; height: 26px; object-fit: contain; filter: drop-shadow(0 0 6px rgba(0, 162, 222, 0.5));">
                 </div>
                 <div class="header-title-wrapper">
                     <h1>FlashForge AD5X Kontrol</h1>
@@ -1611,8 +1652,13 @@
                             </svg>
                             Canlı Kamera Yayını
                         </span>
-                        <div style="display: flex; gap: 6px;">
-                            <button class="macro-chip" style="border:1px solid var(--border-color); background:transparent; font-size:11px;" onclick="reloadCamera()">Yayını Yenile</button>
+                        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                            <div class="camera-mode-toggle-group">
+                                <button type="button" class="cam-mode-btn active" id="camBtn-direct" onclick="switchCameraMode('direct')" title="Doğrudan Yazıcı Akışı (Port 8080)">🌐 Doğrudan</button>
+                                <button type="button" class="cam-mode-btn" id="camBtn-proxy" onclick="switchCameraMode('proxy')" title="Sunucu Üzerinden Proxy Akışı">🔄 Proxy</button>
+                                <button type="button" class="cam-mode-btn" id="camBtn-snapshot" onclick="switchCameraMode('snapshot')" title="Anlık Tek Kareler (1 fps)">📸 Snapshot</button>
+                            </div>
+                            <button class="macro-chip" style="border:1px solid var(--border-color); background:transparent; font-size:11px;" onclick="reloadCamera()" title="Yeniden Bağlan">Yenile</button>
                             <button id="cameraFullscreenBtn" class="macro-chip" style="border:1px solid var(--border-color); background:transparent; font-size:11px; display: inline-flex; align-items: center; gap: 4px;" onclick="toggleCameraFullscreen()">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
@@ -1622,13 +1668,31 @@
                         </div>
                     </div>
                     <div class="camera-stream-container">
-                        <img src="/api/camera/stream" alt="Canlı Kamera Yayını" id="cameraImg" onerror="handleCameraError()">
-                        <div class="camera-fallback" id="cameraFallback">
-                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 8px; color: var(--text-muted);">
+                        <img src="" alt="Canlı Kamera Yayını" id="cameraImg" onerror="handleCameraError()" onload="handleCameraLoad()">
+                        <div class="camera-fallback" id="cameraFallback" style="padding: 16px; overflow-y: auto;">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 4px; color: var(--color-warning);">
                                 <path d="M1 1l22 22M21 16V8a2 2 0 0 0-2-2h-4l-2-3H9L8.13 4.3M3 8v11a2 2 0 0 0 2 2h14a2 2 0 0 0 1.25-.45"></path>
                             </svg>
-                            <span>Kamera Yayını Yüklenemedi veya Çevrimdışı</span>
-                            <button class="btn btn-secondary" style="margin-top: 12px; padding: 6px 12px; font-size: 12px;" onclick="reloadCamera()">Yeniden Dene</button>
+                            <div style="font-weight: 600; color: #fff; font-size: 14px;">Kamera Yayını Alınamadı</div>
+                            <div id="cameraDiagMessage" style="font-size: 11px; color: var(--text-muted); max-width: 380px; line-height: 1.4;">
+                                Yazıcı kamera akışına ulaşılamıyor.
+                            </div>
+                            
+                            <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; justify-content: center;">
+                                <button class="btn btn-primary" style="padding: 5px 12px; font-size: 11px;" onclick="switchCameraMode('direct')">🌐 Doğrudan Moda Geç (Port 8080)</button>
+                                <button class="btn btn-secondary" style="padding: 5px 10px; font-size: 11px;" onclick="switchCameraMode('proxy')">🔄 Sunucu Proxy Dene</button>
+                                <button class="btn btn-secondary" style="padding: 5px 10px; font-size: 11px;" onclick="switchCameraMode('snapshot')">📸 Snapshot Dene</button>
+                                <a id="btnDirectCameraUrl" href="#" target="_blank" class="btn btn-secondary" style="padding: 5px 10px; font-size: 11px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                                    ↗ Yeni Sekmede Aç
+                                </a>
+                            </div>
+
+                            <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); padding: 8px 12px; margin-top: 8px; text-align: left; font-size: 10.5px; color: var(--text-secondary); max-width: 380px;">
+                                <strong style="color: var(--text-primary); display: block; margin-bottom: 3px;">🔍 İpuçları:</strong>
+                                • <strong>Doğrudan Bağlantı (Önerilen):</strong> Tarayıcınız yazıcıyla aynı yerel ağdaysa "Doğrudan (Port 8080)" modu sıfır gecikmeyle en akıcı yayını sağlar.<br>
+                                • <strong>Yazıcı Ekranı:</strong> <em>Ayarlar ➔ Kamera</em> anahtarının <strong>AÇIK</strong> olduğundan emin olun.<br>
+                                • <strong>Tek İstemci Kısıtı:</strong> Yazıcının port 8080 servisi başka bir tarayıcı sekmesinde açıksa bu sekmeyi engelliyor olabilir.
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2102,6 +2166,8 @@
                                     <span class="macro-chip" onclick="quickTerminalCmd('M115')">M115 (Bilgi)</span>
                                     <span class="macro-chip" onclick="quickTerminalCmd('M119')">M119 (Durum)</span>
                                     <span class="macro-chip" onclick="quickTerminalCmd('M503')">M503 (Ayarlar)</span>
+                                    <span class="macro-chip" style="color:var(--color-warning)" onclick="unlockPrinterSession()" title="Kilitli TCP Oturumunu Serbest Bırak">M602 (Kilit Aç)</span>
+                                    <span class="macro-chip" style="color:var(--color-danger)" onclick="restartPrinterDevice()" title="Yazıcıyı Yeniden Başlat">M999 (Reboot)</span>
                                     <span class="macro-chip" style="margin-left:auto; color:var(--color-danger)" onclick="clearTerminal()">Temizle</span>
                                 </div>
                             </div>
@@ -2127,22 +2193,110 @@
         // Fine tuning variables
         let accumulatedZOffset = 0.0;
 
-        // Camera functions
+        // Camera functions & 3-Way Mode Handling
+        let currentPrinterHost = "{{ printer }}";
+        let cameraMode = localStorage.getItem('flashforge_camera_mode') || 'direct';
+        let snapshotTimer = null;
+
+        function updateCameraButtons() {
+            ['direct', 'proxy', 'snapshot'].forEach(m => {
+                const btn = document.getElementById('camBtn-' + m);
+                if (btn) {
+                    if (m === cameraMode) {
+                        btn.classList.add('active');
+                    } else {
+                        btn.classList.remove('active');
+                    }
+                }
+            });
+        }
+
+        function switchCameraMode(mode) {
+            cameraMode = mode;
+            localStorage.setItem('flashforge_camera_mode', mode);
+            updateCameraButtons();
+
+            if (snapshotTimer) {
+                clearInterval(snapshotTimer);
+                snapshotTimer = null;
+            }
+            reloadCamera();
+        }
+
+        function fetchCameraSnapshot() {
+            if (cameraMode !== 'snapshot') return;
+            const img = document.getElementById('cameraImg');
+            if (!img) return;
+            const tempImg = new Image();
+            tempImg.onload = function() {
+                img.src = tempImg.src;
+                img.style.display = 'block';
+                const fallback = document.getElementById('cameraFallback');
+                if (fallback) fallback.style.display = 'none';
+            };
+            tempImg.onerror = function() {
+                handleCameraError();
+            };
+            tempImg.src = "/api/camera/snapshot?t=" + Date.now();
+        }
+
         function reloadCamera() {
             const img = document.getElementById('cameraImg');
             const fallback = document.getElementById('cameraFallback');
-            fallback.style.display = 'none';
-            img.style.display = 'block';
-            img.src = "/api/camera/stream?t=" + Date.now();
-            logConsole("Kamera yayını yenileniyor...", "system");
+            if (fallback) fallback.style.display = 'none';
+            if (img) img.style.display = 'block';
+
+            if (snapshotTimer) {
+                clearInterval(snapshotTimer);
+                snapshotTimer = null;
+            }
+
+            updateCameraButtons();
+
+            const host = (currentPrinterHost && currentPrinterHost !== '192.168.1.12') ? currentPrinterHost : (currentPrinterHost || window.location.hostname);
+            const directLink = document.getElementById('btnDirectCameraUrl');
+            if (directLink) {
+                directLink.href = `http://${host}:8080/?action=stream`;
+            }
+
+            if (cameraMode === 'direct') {
+                logConsole(`Doğrudan kamera akışı bağlanıyor (http://${host}:8080/?action=stream)...`, "system");
+                if (img) img.src = `http://${host}:8080/?action=stream&t=${Date.now()}`;
+            } else if (cameraMode === 'proxy') {
+                logConsole("Sunucu kamera proxy akışı bağlanıyor (/api/camera/stream)...", "system");
+                if (img) img.src = "/api/camera/stream?t=" + Date.now();
+            } else {
+                logConsole("Kamera snapshot modu başlatıldı...", "system");
+                fetchCameraSnapshot();
+                snapshotTimer = setInterval(fetchCameraSnapshot, 1000);
+            }
+        }
+
+        function handleCameraLoad() {
+            const img = document.getElementById('cameraImg');
+            const fallback = document.getElementById('cameraFallback');
+            if (fallback) fallback.style.display = 'none';
+            if (img) img.style.display = 'block';
         }
 
         function handleCameraError() {
             const img = document.getElementById('cameraImg');
             const fallback = document.getElementById('cameraFallback');
-            img.style.display = 'none';
-            fallback.style.display = 'flex';
-            logConsole("Kamera yayını yüklenemedi. Bağlantı veya port hatası.", "error");
+            if (img) img.style.display = 'none';
+            if (fallback) fallback.style.display = 'flex';
+            logConsole("Kamera görüntüsü yüklenemedi (" + cameraMode + " modu).", "error");
+
+            const diag = document.getElementById('cameraDiagMessage');
+            const host = currentPrinterHost || window.location.hostname;
+            if (diag) {
+                if (cameraMode === 'proxy') {
+                    diag.innerHTML = `Sunucu proxy yayını (/api/camera/stream) alınamadı. Yerel ağdaysanız üstten <strong>Doğrudan (Port 8080)</strong> modunu seçin.`;
+                } else if (cameraMode === 'direct') {
+                    diag.innerHTML = `http://${host}:8080/?action=stream adresine ulaşılamadı. Başka sekmede açık ise kapatmayı deneyin veya IP adresini kontrol edin.`;
+                } else {
+                    diag.innerHTML = `Anlık kareler (Snapshot) sunucudan alınamadı.`;
+                }
+            }
         }
 
         // Selection of Jog Steps
@@ -2898,6 +3052,7 @@
         // Initial trigger and set loop
         load();
         setInterval(load, 2000);
+        setTimeout(reloadCamera, 100);
 
         // Settings Modal Management
         function openSettingsModal() {
@@ -2994,6 +3149,99 @@
             });
         }
 
+        // System & Service Management Functions
+        function showServiceStatus(msg, isError = false) {
+            const el = document.getElementById('serviceActionStatus');
+            if (!el) return;
+            el.style.display = 'block';
+            el.style.background = isError ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)';
+            el.style.border = isError ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(16, 185, 129, 0.3)';
+            el.style.color = isError ? 'var(--color-danger)' : 'var(--color-success)';
+            el.textContent = msg;
+            setTimeout(() => {
+                el.style.display = 'none';
+            }, 6000);
+        }
+
+        function restartPanelServices() {
+            logConsole("Panel arka plan servisleri yeniden başlatılıyor...", "system");
+            showServiceStatus("Servisler yeniden başlatılıyor...");
+            fetch('/api/service/restart', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.ok) {
+                        showServiceStatus(data.message || "Servisler başarıyla yeniden başlatıldı!");
+                        logConsole(data.message, "system");
+                        reloadCamera();
+                    } else {
+                        showServiceStatus("Hata: " + data.error, true);
+                        logConsole("Servis hatası: " + data.error, "error");
+                    }
+                })
+                .catch(e => {
+                    showServiceStatus("İstek hatası: " + e, true);
+                });
+        }
+
+        function restartCameraService() {
+            logConsole("Kamera servisi sıfırlanıyor...", "system");
+            showServiceStatus("Kamera servisi sıfırlanıyor...");
+            fetch('/api/camera/restart', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.ok) {
+                        showServiceStatus(data.message || "Kamera servisi sıfırlandı!");
+                        logConsole(data.message, "system");
+                        reloadCamera();
+                    } else {
+                        showServiceStatus("Hata: " + data.error, true);
+                    }
+                })
+                .catch(e => {
+                    showServiceStatus("İstek hatası: " + e, true);
+                });
+        }
+
+        function unlockPrinterSession() {
+            logConsole("Yazıcı kontrol oturumu serbest bırakılıyor (~M602)...", "system");
+            showServiceStatus("Oturum serbest bırakılıyor...");
+            fetch('/api/printer/unlock', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.ok) {
+                        showServiceStatus(data.message || "Oturum serbest bırakıldı.");
+                        logConsole(data.message, "system");
+                    } else {
+                        showServiceStatus("Hata: " + data.error, true);
+                    }
+                })
+                .catch(e => {
+                    showServiceStatus("İstek hatası: " + e, true);
+                });
+        }
+
+        function restartPrinterDevice() {
+            if (!confirm("⚠️ DİKKAT: Yazıcı anakartını ve firmware'ini yeniden başlatmak istediğinizden emin misiniz?\n\nDevam eden bir baskı varsa durdurulabilir!")) {
+                return;
+            }
+            logConsole("Yazıcı yeniden başlatma komutu (~M999) gönderiliyor...", "warning");
+            showServiceStatus("Yazıcı yeniden başlatılıyor (~M999)...");
+            fetch('/api/printer/restart', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.ok) {
+                        showServiceStatus(data.message || "Yeniden başlatma komutu gönderildi.");
+                        logConsole(data.message, "warning");
+                    } else {
+                        showServiceStatus("Hata: " + data.error, true);
+                        logConsole("Hata: " + data.error, "error");
+                    }
+                })
+                .catch(e => {
+                    showServiceStatus("İstek hatası: " + e, true);
+                });
+        }
+
         // Fullscreen Toggle for Preview Camera
         function toggleCameraFullscreen() {
             const container = document.querySelector('.camera-stream-container');
@@ -3046,12 +3294,9 @@
     <!-- SETTINGS MODAL OVERLAY -->
     <div class="modal-overlay" id="settingsModal">
         <div class="modal-window">
-            <div class="modal-title">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="3"></circle>
-                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-                </svg>
-                Yazıcı Bağlantı Ayarları
+            <div class="modal-title" style="display: flex; align-items: center; gap: 8px;">
+                <img src="/hFlashForgeLogo.svg" alt="Logo" style="width: 22px; height: 22px; object-fit: contain;">
+                Yazıcı Bağlantı Ayarları & Sistem Yönetimi
             </div>
             
             <div class="modal-body">
@@ -3103,10 +3348,49 @@
                     </div>
                     <div class="debug-error-msg" id="debugIfsErrorMsg" style="display: none;"></div>
                 </div>
+
+                <!-- Service & Machine Operations -->
+                <div class="status-debug-section" style="margin-top: 12px;">
+                    <span style="font-weight: 600; font-size: 11px; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 8px; display: block; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 4px;">Sistem & Servis Yönetimi</span>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <button type="button" class="btn btn-secondary" style="padding: 7px 10px; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 6px;" onclick="restartPanelServices()" title="Panel arka plan sorgulayıcısını ve soketleri yeniden başlatır">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                            </svg>
+                            Servisleri Yeniden Başlat
+                        </button>
+                        
+                        <button type="button" class="btn btn-secondary" style="padding: 7px 10px; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 6px;" onclick="restartCameraService()" title="Kamera yayıncısını ve MJPEG proxy akışını sıfırlar">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                                <circle cx="12" cy="13" r="4"></circle>
+                            </svg>
+                            Kamerayı Sıfırla
+                        </button>
+                        
+                        <button type="button" class="btn btn-secondary" style="padding: 7px 10px; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--color-warning);" onclick="unlockPrinterSession()" title="Kilitli kalan TCP oturumunu serbest bırakır (M602)">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
+                            </svg>
+                            Oturumu Sıfırla (M602)
+                        </button>
+                        
+                        <button type="button" class="btn btn-secondary" style="padding: 7px 10px; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--color-danger); border-color: rgba(239, 68, 68, 0.3);" onclick="restartPrinterDevice()" title="Yazıcı anakartını / firmware'ini yeniden başlatır (M999)">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+                                <line x1="12" y1="2" x2="12" y2="12"></line>
+                            </svg>
+                            Yazıcıyı Yeniden Başlat
+                        </button>
+                    </div>
+                    <div id="serviceActionStatus" style="font-size: 11px; margin-top: 8px; display: none; padding: 6px 10px; border-radius: 4px;"></div>
+                </div>
             </div>
             
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeSettingsModal()">İptal</button>
+                <button class="btn btn-secondary" onclick="closeSettingsModal()">Kapat</button>
                 <button class="btn btn-primary" onclick="saveSettings()">Ayarları Kaydet</button>
             </div>
         </div>

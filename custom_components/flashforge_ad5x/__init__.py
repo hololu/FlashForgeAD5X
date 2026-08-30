@@ -11,7 +11,7 @@ from .api import FlashForgeAPI
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.SENSOR, Platform.BUTTON, Platform.LIGHT]
+PLATFORMS = [Platform.SENSOR, Platform.BUTTON, Platform.LIGHT, Platform.CAMERA]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Config entry üzerinden FlashForge AD5X kurulumunu yapar."""

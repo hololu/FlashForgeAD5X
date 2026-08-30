@@ -66,6 +66,11 @@ cards:
         name: Katman Oranı
       - entity: light.flashforge_kasa_isigi
         name: Kasa Işığı (LED)
+  - type: picture-entity
+    entity: camera.flashforge_kamera
+    camera_image: camera.flashforge_kamera
+    camera_view: live
+    name: Canlı Kamera
   - type: entities
     title: Filament İstasyonu (IFS)
     show_header_toggle: false
@@ -143,3 +148,22 @@ FlashForge Adventurer 5M serisinde web API'sinin (Port 8898) aktif olabilmesi i�
 ### 3. Adım: Docker (CasaOS) Ağ Modunu Kontrol Edin (Eğer Sorun Devam Ederse)
 Eğer yazıcıda LAN Control açık olduğu halde hala bu hatayı alıyorsanız:
 *   CasaOS'ta Home Assistant konteynerinin ağ ayarlarını **Host Mode (Ana Makine Ağ Modu)** olarak yapılandırın. `Bridge` modunda Docker bazı port isteklerini engelleyebilir veya dışarıya yanlış IP ile yönlendirebilir. Ancak 8899 çalıştığı için bu ihtimal oldukça düşüktür; asıl neden büyük olasılıkla yazıcı üzerindeki LAN Control anahtarıdır.
+
+---
+
+## 3. Kamera Görüntüsü Gelmeme Sorunu ve Çözüm Adımları
+
+Eğer Web Panelinde veya Home Assistant arayüzünde kamera görüntüsü görünmüyorsa:
+
+### 1. Adım: Yazıcı Ekranında Kamera Ayarını Açın
+1. Yazıcınızın dokunmatik ekranında **Ayarlar (Settings)** simgesine dokunun.
+2. **Kamera (Camera)** seçeneğine gidin.
+3. Kamera anahtarının **AÇIK (ON)** durumda olduğundan emin olun. (Kapalı olduğunda yazıcı dâhili mjpg-streamer servisini (Port 8080) çalıştırmaz).
+
+### 2. Adım: Fiziksel USB / Şerit Kablo Bağlantısını Kontrol Edin
+* Yazıcının içindeki USB kamera modülü kablosunun yerinden oynamadığından veya gevşemediğinden emin olun.
+
+### 3. Adım: Tarayıcıdan Doğrudan Port 8080 Testi
+* Tarayıcınızda yeni bir sekme açarak `http://<YAZICI_IP>:8080/?action=stream` adresine gidin.
+* Eğer bu adreste yayın açılıyorsa yerel ağ bağlantınız ve yazıcı kamerası sorunsuz çalışmaktadır.
+* Web panelinde veya zayıf ağlarda canlı akış yerine **Snapshot (Tek Kare)** moduna geçerek de görüntüyü izleyebilirsiniz.
