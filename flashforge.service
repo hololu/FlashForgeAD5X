@@ -1,0 +1,14 @@
+[Unit]
+Description=FlashForge AD5X Web Dashboard & Camera Proxy
+After=network.target
+
+[Service]
+Type=simple
+User=hololu
+WorkingDirectory=/home/hololu/calismalar/flashforge
+ExecStart=/home/hololu/calismalar/flashforge/venv/bin/uvicorn flashforge_panel:app --host 0.0.0.0 --port 9003
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

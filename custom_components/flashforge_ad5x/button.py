@@ -45,6 +45,12 @@ BUTTON_DESCRIPTIONS: list[FlashForgeButtonDescription] = [
         command="~M26\r\n",
     ),
     FlashForgeButtonDescription(
+        key="clear_platform",
+        name="Platformu Temizle / Sıfırla (Clear Platform)",
+        icon="mdi:broom",
+        command="~M26\r\n",
+    ),
+    FlashForgeButtonDescription(
         key="reboot",
         name="Yazıcıyı Yeniden Başlat (Restart)",
         icon="mdi:restart",
@@ -103,6 +109,9 @@ class FlashForgeButton(FlashForgeBaseEntity, ButtonEntity):
             self.name,
             self.entity_description.command.strip(),
         )
-        await self.api.async_send_command(self.entity_description.command)
+        if self.entity_description.key == "clear_platform":
+            await self.api.async_clear_platform()
+        else:
+            await self.api.async_send_command(self.entity_description.command)
         # Verilerin hızlı güncellenmesini tetiklemek için koordinatör güncellemesini tetikle
         await self.coordinator.async_request_refresh()

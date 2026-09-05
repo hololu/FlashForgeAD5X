@@ -25,24 +25,28 @@ flashforge/
 ├── hFlashForgeLogo.svg          # Vektörel SVG uygulama ve marka logosu
 ├── hFlashForgeLogo.png          # PNG formatında uygulama simgesi / favicon
 ├── screenshot.png               # Web Dashboard arayüz ekran görüntüsü
-├── flashforge_panel.py          # FastAPI tabanlı Web Sunucu (Backend) & Kamera Proxy Dağıtıcısı
+├── flashforge_panel.py          # FastAPI tabanlı Web Sunucu (Backend), Kamera Proxy & Time-Lapse Motoru
 ├── config.json                  # Yazıcı bağlantı ve kalıcı ince ayarlar (Otomatik oluşturulur)
+├── requirements.txt             # Python paket bağımlılıkları listesi
+├── start.sh                     # Linux & Raspberry Pi otomatik sanal ortam ve başlatıcı scripti
+├── flashforge.service           # systemd arka plan servis yapılandırma dosyası
+├── .gitignore                   # Git önbellek ve kullanıcı yapılandırması yoksayma kuralları
 ├── templates/
 │   └── dashboard.html           # Modern, responsive ve premium Web Arayüzü (Frontend)
 ├── custom_components/
 │   └── flashforge_ad5x/         # Home Assistant özel entegrasyonu
 │       ├── __init__.py          # Entegrasyon başlangıç ve koordinatör yapılandırması
-│       ├── api.py               # HA için asenkron FlashForge API istemcisi
+│       ├── api.py               # HA için asenkron FlashForge API istemcisi (HTTP + TCP)
 │       ├── const.py             # Sabitler (Domain, scan interval vb.)
 │       ├── config_flow.py       # HA arayüzünden kurulum ve bağlantı akışı
 │       ├── manifest.json        # HA entegrasyon meta verileri ve bağımlılıkları
-│       ├── sensor.py            # Sıcaklıklar, katman, ilerleme, TVOC, disk alanı ve donanım sensörleri
+│       ├── sensor.py            # Sıcaklıklar, katman, ilerleme, hata teşhis, TVOC ve donanım sensörleri
 │       ├── light.py             # Kabin aydınlatma kontrolü (HTTP ve TCP tabanlı)
-│       ├── button.py            # Home, Duraklat, Devam, Durdur, Oturumu Sıfırla (M602), Yeniden Başlat (M999)
+│       ├── button.py            # Platform Temizle (setClearPlatform), Home, Duraklat, Devam, Reset (M999/M602)
 │       ├── camera.py            # Canlı MJPEG kamera ve anlık görüntü yakalama entegrasyonu
 │       └── strings.json         # Türkçe/İngilizce dil ve çeviri tanımları
 ├── homeassistant_guide.md       # Home Assistant detaylı kurulum, Lovelace kartları ve sorun giderme rehberi
-└── README.md                    # Proje dokümantasyonu
+└── README.md                    # Kapsamlı proje dokümantasyonu
 ```
 
 ---
@@ -58,7 +62,20 @@ Yazıcının dâhili `mjpg-streamer` kamera servisi donanımsal olarak tek bağl
 
 ---
 
-### 2. 🛠️ Sistem & Servis Yönetimi (Settings Modal)
+### 2. 🧊 3D G-Code Önizleme ve Canlı Baskı Görselleştirici (WebGL / Three.js)
+Mevcut görsel izleme kartı içerisine entegre edilen modern 3D görselleştirici ile baskılarınızı yazdırmadan önce veya yazdırılırken gerçek zamanlı inceleyebilirsiniz:
+* **📐 FlashForge AD5X 3D Tablası:** 220 × 220 × 220 mm yapı hacmi, milimetrik koordinat ızgarası ve orijin (0,0) eksenleri.
+* **🌈 Dinamik Katman Renklendirmesi:** Katman yüksekliğine göre HSL renk geçişli (Cyan ➔ İndigo ➔ Menekşe ➔ Amber) ekstrüzyon çizgileri ve açılıp kapatılabilen yarı saydam boşta hareket (travel) hatları.
+* **🎮 360° Serbest Kamera & Hazır Açılar:** Fare ile serbest döndürme (Orbit), kaydırma (Pan), yakınlaştırma (Zoom) ve tek tıkla İzometrik (3D), Üst (Top), Ön (Front) bakış açıları veya modeli ortalama.
+* **🎚️ Katman Kaydırıcı (Layer Slider) & Animasyon:** 1. katmandan son katmana kadar kaydırma, katman adım butonları (◀ / ▶) ve otomatik katman katman yazdırma simülasyonu (▶ Oynat).
+* **🔴 Canlı Yazıcı Katman Senkronizasyonu:** Yazıcı aktif baskı yaparken gelen katman verisiyle (`M27` katman telemetrisi) otomatik eşzamanlanarak nozulun ulaştığı yüksekliği canlı gösterir.
+* **📁 Dosya Desteği & Sürükle-Bırak:** Bilgisayarınızdan herhangi bir `.gcode` veya `.3mf` dosyasını doğrudan ekrana sürükleyip bırakabilir, LAN yükleme kutusundan seçebilir veya dahili 20mm kalibrasyon test küpünü tek tıkla yükleyebilirsiniz.
+* **💾 Sunucu Önbelleği (G-Code Cache):** Web paneli üzerinden yazıcıya gönderilen G-Code ve 3MF dosyaları otomatik önbelleğe alınarak aktif baskı başladığında tek tıkla 3D ekrana aktarılır.
+* **⛶ Tam Ekran Modu:** Tek tıkla tüm ekranı kaplayan sinematik 3D modelleme alanı.
+
+---
+
+### 3. 🛠️ Sistem & Servis Yönetimi (Settings Modal)
 Web arayüzünün sağ üstündeki **⚙️ Ayarlar** penceresi ve **Uçbirim (G-Code Konsolu)** üzerinden kritik operasyonlar tek tıkla yürütülür:
 * **🔄 Servisleri Yeniden Başlat (`/api/service/restart`):** Panel arka plan sorgulayıcısını (`watch_loop`), soket havuzunu ve kamera yayıncısını temizleyip baştan başlatır.
 * **📷 Kamerayı Sıfırla (`/api/camera/restart`):** Askıda kalan kamera istemci soketlerini kapatır ve yeni bağlantı açar.
@@ -67,7 +84,7 @@ Web arayüzünün sağ üstündeki **⚙️ Ayarlar** penceresi ve **Uçbirim (G
 
 ---
 
-### 3. 🎛️ Canlı İnce Ayar (Live Tuning) & Otomatik Sıfırlama
+### 4. 🎛️ Canlı İnce Ayar (Live Tuning) & Otomatik Sıfırlama
 * **Babystepping (Z-Ofset):** Baskı sırasında tablanın ilk katman mesafesini `0.01 mm`, `0.05 mm` veya `0.10 mm` adımlarla canlı olarak ayarlama. `SET_GCODE_OFFSET` ve `M290` komutları ardışık gönderilerek hem Klipper hem Marlin uyumluluğu sağlanır.
 * **Baskı Hızı Çarpanı (Feedrate):** `%5` hassasiyetli sürgü ile `M220 S{yüzde}` komutu gönderimi.
 * **Kabin Soğutma Fanı:** `%` sürgü değeriyle `M106 S{değer}` komutu üzerinden anlık fan devri ayarı.
@@ -75,14 +92,14 @@ Web arayüzünün sağ üstündeki **⚙️ Ayarlar** penceresi ve **Uçbirim (G
 
 ---
 
-### 4. 🧵 Etkileşimli IFS (Filament İstasyonu) Yönetimi
+### 5. 🧵 Etkileşimli IFS (Filament İstasyonu) Yönetimi
 * AD5X / Adventurer 5M Pro 4-slotlu Filament İstasyonu durumunu (Slot rengi, malzeme tipi, yüklü slot) görselleştirir.
 * Arayüzdeki slot kartına tıklandığında onay istenerek yazıcıya otomatik `T0`, `T1`, `T2`, `T3` filament değiştirme komutu gönderilir.
 * "Filamenti Çıkar" butonuyla aktif slot serbest bırakılabilir.
 
 ---
 
-### 5. 📊 Zengin Donanım & Sensör Telemetrisi (HTTP 8898 /detail API)
+### 6. 📊 Zengin Donanım & Sensör Telemetrisi (HTTP 8898 /detail API)
 * **Kabin & Hazne Sıcaklığı:** Anlık ve hedef sıcaklık takibi.
 * **TVOC Hava Kalitesi:** Hazne içi VOC gazı seviyesi (`ppb`).
 * **Fan Hızları:** Sol Fan, Sağ/Ana Soğutma Fanı ve Hazne Fanı devirleri (`%`).
@@ -91,12 +108,86 @@ Web arayüzünün sağ üstündeki **⚙️ Ayarlar** penceresi ve **Uçbirim (G
 
 ---
 
-### 6. 🏠 Home Assistant Entegrasyonu
+### 7. ⚠️ Akıllı Duraklatma, Hata Teşhis & Uzaktan Platform Temizleme (Smart Pause & setClearPlatform)
+Yazıcı baskı esnasında duraklatıldığında veya arıza moduna geçtiğinde (`MachineStatus: PAUSED / ERROR`):
+* **🔍 Çok Katmanlı Teşhis Algoritması:** Yazıcının neden durduğunu otomatik tespit eder (Kapak açık sensörü `doorStatus == open`, filament bitti/eksik `filamentLack`, M119 sensör bayrakları `F:1`/`J:1`, donanım hata kodları `errorCode` veya katman duraklatması).
+* **🚨 Yüksek Görünürlüklü Uyarı Paneli:** Sayfanın en üstünde turuncu/kırmızı parlayan teşhis bildirimi açılır ve doğrudan üzerinde **"▶ Devam Et"** ile **"⏹ İptal Et"** butonları sunar.
+* **🔔 Sıfır Bağımlı Sesli İkaz (Web Audio API):** Duraklatma ve hata anında tarayıcıda sentetik çift tonlu melodi çalarak uzaktayken bile anında haber verir.
+* **📱 Masaüstü Tarayıcı Bildirimleri:** Tarayıcı arka plandayken dahi masaüstü bildirimi (Desktop Notification) gönderir.
+* **💡 Parlayan "Devam Et" Butonu:** Duraklatma anında "Devam Et" butonu nabız gibi parlayarak kullanıcının aksiyon almasını kolaylaştırır.
+* **🧊 3D Önizleme Senkronizasyonu:** 3D G-Code panelindeki canlı bilgi şeridinde de duraklatma gerekçesi ve hata mesajı gerçek zamanlı yansıtılır.
+* **🎉 Baskı Tamamlandı & Uzaktan Platform Temizleme Onayı (setClearPlatform):** Önceki baskı bittiğinde FlashForge yazıcılarının ekranında beliren *"Yazdırma tamamlandı, platformu temizleyin!"* modal penceresi ve `BUILDING_COMPLETED` durumu otomatik algılanır. Sayfa tepesinde parlayan turkuaz ikaz paneli açılır, zafer fanfarı çalar ve tek tıkla **"🧹 Platformu Temizle"** butonuna basıldığında Flash Studio Desktop'ın kullandığı tersine mühendislik ile çözülmüş `stateCtrl_cmd / setClearPlatform` komutu (`/api/clear_platform`) yazıcıya iletilerek **fiziksel yazıcı ekranına gitmeye gerek kalmadan** uyarı uzaktan kapatılır ve yazıcı anında `READY` durumuna geçer.
+* **🛡️ Otomatik İyileştirmeli G-Code Gönderimi (Broken Pipe Koruması):** Platform temizlenmeden yeni bir G-Code gönderilmeye çalışıldığında yazıcının bağlantıyı koparması (`[Errno 32] Broken pipe`) otomatik yakalanır; arka planda `setClearPlatform` komutu iletilip yükleme otomatik yinelenerek baskı kesintisiz başlatılır.
+
+---
+
+### 8. 🖨️ Çoklu Malzeme / Çok Renkli Baskı & IFS Eşleme ("Plakayı Yazdır" Penceresi)
+Flash Studio masaüstü uygulamasındaki gibi, yazdırma başlatılmadan önce açılan modern modal ile gelişmiş baskı konfigürasyonu:
+* **🎨 Otomatik Model Analizi (`/api/model/parse`):** Seçilen `.3mf` veya `.gcode` dosyasının XML filament etiketleri, dilimleyici başlık/kuyruk konfigürasyonları taranarak modelde kullanılan tüm Tool numaraları (`T0`, `T1`...), malzeme türleri (PLA, PETG vb.) ve HEX renk kodları otomatik olarak ayrıştırılır.
+* **🔄 Akıllı Renk Mesafesi Algoritması:** Modeldeki her renk, yazıcının 4'lü IFS istasyonunda takılı olan filamentlerin renkleriyle Delta-E Öklid renk mesafesi algoritması üzerinden karşılaştırılır ve en yakın renk eşleşmesi otomatik seçilir.
+* **🎛️ Esnek Slot Seçimi ve Renk Ekleme:** Kullanıcı dilerse arayüzdeki açılır kutudan istediği IFS slotunu (`Slot 1` - `Slot 4`) veya harici makarayı seçebilir, dilerse **"➕ Renk Ekle"** butonuyla yeni filament kanalları tanımlayabilir.
+* **Baskı Öncesi Tercihleri:** Yatak seviyeleme (`levelingBeforePrint`), IFS istasyonunu devreye alma (`useMatlStation`) ve Time-Lapse video kaydı (`timeLapseVideo`) onay kutuları üzerinden bağımsız olarak kontrol edilir.
+
+---
+
+### 9. ⚡ İki Aşamalı Baskı Başlatma & Tersine Mühendislik Protokolü (Dual-Stage Print Dispatch)
+Flash Studio Desktop (`FlashNetwork.dll`) ve FlashForge AD5X firmware haberleşmesi derinlemesine tersine mühendislik ile çözümlenmiştir:
+* **Aşama 1 - Dosya Yükleme (`POST http://{IP}:8898/uploadGcode`):** `multipart/form-data` formatında dosya yazıcının dahili flash hafızasına kaydedilir. FlashForge firmware mimarisinde bu endpoint yalnızca dosya sistemine yazma işlemi yapar; başlıkta `printNow: 1` olsa dahi baskıyı başlatmaz.
+* **Aşama 2 - Fiziksel Baskı Başlatma (`POST http://{IP}:8898/printGcode`):** Dosya yazımı doğrulandıktan hemen sonra sunucu, yazıcının port 8898 üzerindeki özel JSON servisine bağlanır. Aşağıdaki JSON şeması ile fiziksel baskı başlatma komutu iletilir:
+  ```json
+  {
+    "serialNumber": "SNMQQF9301246",
+    "checkCode": "dd89422a",
+    "fileName": "model_plate_1.3mf",
+    "levelingBeforePrint": true,
+    "flowCalibration": false,
+    "firstLayerInspection": false,
+    "timeLapseVideo": true,
+    "useMatlStation": true,
+    "gcodeToolCnt": 2,
+    "materialMappings": [
+      {
+        "toolId": 0,
+        "slotId": 3,
+        "materialName": "PLA",
+        "toolMaterialColor": "#FFFFFF",
+        "slotMaterialColor": "#FFFFFF"
+      }
+    ]
+  }
+  ```
+* **🛡️ Otomatik TCP Geri Dönüş (Fallback):** HTTP servisinin erişilemediği eski firmware sürümleri için TCP Port 8899 üzerinden `~M23 0:/user/{fileName}` ve `~M24` çiftli komut zinciri otomatik devreye girer.
+
+---
+
+### 10. 📁 Yazıcı Hafızasındaki Dosyalar & Doğrudan Baskı Başlatma ("Yazıcıdaki Dosyalar" Modal)
+Yazıcının dahili flash belleğinde kayıtlı tüm modelleri yönetmek için tam teşekküllü arayüz ve API:
+* **📋 Dahili Dosya Listesi (`GET /api/printer/files`):** Yazıcının `POST http://{IP}:8898/gcodeList` servisi sorgulanarak hafızadaki tüm `.3mf` ve `.gcode` dosyaları listelenir.
+* **📊 Zengin Baskı Detayları:** Her dosya için yazıcının kendi hesapladığı toplam filament ağırlığı (`gram`), tahmini baskı süresi (`saat / dakika`), kullanılan tool sayısı ve renk rozetleri gösterilir.
+* **🚀 Tek Tıkla Yeniden Yazdırma (`POST /api/print/start`):** Önceden gönderilmiş veya yazıcı hafızasında bulunan bir dosyayı bilgisayarınızdan tekrar yüklemekle vakit kaybetmeden doğrudan **"Baskıyı Başlat"** butonuna basarak anında üretime alabilirsiniz.
+
+---
+
+### 11. 🎬 Otomatik Time-Lapse Video Kayıt, Galeri ve Katman Oynatıcısı (Automated Time-Lapse System)
+Baskılarınızın hızlandırılmış sinematik kayıtlarını hiçbir harici donanım veya OctoPrint eklentisine ihtiyaç duymadan oluşturur:
+* **📸 Katman Senkronize Kare Yakalama (`TimeLapseManager`):** `M27` katman telemetrisi dinlenerek her yeni katmana geçildiğinde kamera akışından otomatik olarak yüksek çözünürlüklü JPEG kare yakalanır. Katmansız veya vazo modundaki baskılarda ise akıllı zamanlayıcı devreye girer.
+* **🎞️ Çoklu Format Derleme (MP4 & WebP):** Baskı tamamlandığında sistemde `ffmpeg` mevcutsa H.264 MP4 video; kurulu değilse PIL (Pillow) motoruyla sıfır harici bağımlılıkla yüksek kaliteli hareketli **WebP Time-Lapse** videosu otomatik olarak derlenir.
+* **🎚️ Katman Katman İnteraktif İnceleme (Scrubber Player):** Tarayıcı üzerinden katman kaydırma çubuğu ile baskının istediğiniz anına gidebilir, katman katman nozul hareketini geri veya ileri sarabilirsiniz.
+* **📥 İndirme ve Yönetim API'leri:**
+  * `GET /api/timelapse/list` ➔ Kayıtlı oturumlar ve aktif baskı kare sayısı.
+  * `GET /api/timelapse/video/{session_id}` ➔ Video akışı veya doğrudan indirme (`?download=true`).
+  * `GET /api/timelapse/thumbnail/{session_id}` ➔ Oturum kapak fotoğrafı.
+  * `GET /api/timelapse/frames/{session_id}` ➔ Katman kareleri dizisi.
+  * `DELETE /api/timelapse/{session_id}` ➔ Eski kayıtları silme.
+
+---
+
+### 12. 🏠 Home Assistant Entegrasyonu
 Bileşen Home Assistant içerisinde tam teşekküllü bir cihaz olarak tanımlanır:
-* **Sensörler (`sensor`):** Nozul, Yatak, Hazne sıcaklıkları, Katman, İlerleme, Baskı durumu, TVOC hava kalitesi, 4 adet IFS slot durumları, Kalan disk alanı vb.
+* **Sensörler (`sensor`):** Nozul, Yatak, Hazne sıcaklıkları, Katman, İlerleme, Baskı durumu, **Duraklatma / Hata Nedeni**, TVOC hava kalitesi, 4 adet IFS slot durumları, Kalan disk alanı vb.
 * **Aydınlatma (`light`):** Kasa LED ışığını açıp kapatma.
 * **Kamera (`camera`):** `camera.flashforge_ad5x_kamera` varlığı ile doğrudan Lovelace kartlarında canlı MJPEG yayın ve anlık önizleme.
-* **Kontrol Butonları (`button`):** Home, Duraklat, Devam, Acil Durdurma, Oturumu Sıfırla (M602), Yazıcıyı Yeniden Başlat (M999).
+* **Kontrol Butonları (`button`):** **Platformu Temizle / Sıfırla (setClearPlatform)**, Home, Duraklat, Devam, Acil Durdurma, Oturumu Sıfırla (M602), Yazıcıyı Yeniden Başlat (M999).
 
 ---
 
@@ -104,20 +195,55 @@ Bileşen Home Assistant içerisinde tam teşekküllü bir cihaz olarak tanımlan
 
 ### A. Web Dashboard
 
-1. **Gereksinimleri Yükleyin:**
-   Python 3.9+ kurulu ortamda:
-   ```bash
-   pip install fastapi uvicorn jinja2 pydantic
-   ```
+#### 1. Yöntem: Otomatik Başlatıcı (Önerilen - Linux & Raspberry Pi)
+Depoyu klonladıktan veya güncelledikten sonra tek bir komutla sanal ortamı otomatik kurup paneli başlatabilirsiniz:
+```bash
+chmod +x start.sh
+./start.sh
+```
+*(Farklı bir port kullanmak isterseniz: `PORT=9003 ./start.sh`)*
 
-2. **Paneli Başlatın:**
-   ```bash
-   python -m uvicorn flashforge_panel:app --host 0.0.0.0 --port 8000
-   ```
+#### 2. Yöntem: Manuel Sanal Ortam (VENV - Debian 12 / Raspberry Pi OS Uyumlu)
+Debian 12 ve Raspberry Pi OS (Bookworm) üzerinde PEP 668 gereği sanal ortam oluşturarak çalıştırma:
+```bash
+# Gerekli sistem paketini kurun (kurulu değilse):
+sudo apt update && sudo apt install -y python3-venv python3-full
 
-3. **Erişim ve Ayarlar:**
-   * Tarayıcınızdan `http://localhost:8000` (veya `http://<SUNUCU_IP>:8000`) adresini açın.
-   * Sağ üstteki **⚙️ Ayarlar** butonuna tıklayarak Yazıcı IP adresinizi ve LAN şifrenizi (Check Code) girip kaydedin.
+# Sanal ortamı oluşturun ve bağımlılıkları yükleyin:
+python3 -m venv venv
+./venv/bin/pip install --upgrade pip
+./venv/bin/pip install -r requirements.txt
+
+# Paneli başlatın:
+./venv/bin/python -m uvicorn flashforge_panel:app --host 0.0.0.0 --port 9003
+```
+
+#### 3. Yöntem: Doğrudan Kurulum (--break-system-packages)
+```bash
+pip install --break-system-packages -r requirements.txt
+python3 -m uvicorn flashforge_panel:app --host 0.0.0.0 --port 9003
+```
+
+#### 4. Yöntem: systemd Servisi Olarak Arka Planda Kalıcı Çalıştırma (Raspberry Pi & Linux)
+Cihaz her açıldığında panelin otomatik olarak arka planda çalışmasını sağlamak için depodaki `flashforge.service` dosyasını kullanabilirsiniz:
+```bash
+# 1. Servis dosyasını systemd dizinine kopyalayın:
+sudo cp flashforge.service /etc/systemd/system/
+
+# 2. systemd daemon'unu yeniden yükleyin:
+sudo systemctl daemon-reload
+
+# 3. Servisi başlangıçta otomatik çalışacak şekilde etkinleştirin ve başlatın:
+sudo systemctl enable --now flashforge.service
+
+# Servis durumunu ve loglarını kontrol etmek için:
+sudo systemctl status flashforge.service
+```
+*(Not: Kullanıcı adınız veya proje dizininiz farklıysa `sudo nano /etc/systemd/system/flashforge.service` ile `User` ve `WorkingDirectory` alanlarını düzenleyebilirsiniz).*
+
+#### Erişim ve İlk Ayarlar:
+* Tarayıcınızdan `http://<RASPBERRY_PI_IP>:9003` adresini açın.
+* Sağ üstteki **⚙️ Ayarlar** butonuna tıklayarak Yazıcı IP adresinizi ve LAN Kodunuzu (Check Code) girip kaydedin.
 
 ---
 
@@ -127,6 +253,31 @@ Bileşen Home Assistant içerisinde tam teşekküllü bir cihaz olarak tanımlan
 2. Home Assistant'ı yeniden başlatın.
 3. **Ayarlar ➔ Cihazlar ve Hizmetler ➔ Entegrasyon Ekle** bölümünden **FlashForge AD5X** entegrasyonunu seçin ve IP adresinizi girerek kurulumu tamamlayın.
 4. Detaylı Lovelace panelleri ve kart örnekleri için [`homeassistant_guide.md`](homeassistant_guide.md) kılavuzunu inceleyebilirsiniz.
+
+---
+
+## 🌐 REST API Uç Noktaları Referansı
+
+Web Dashboard backend'i (FastAPI), harici otomasyonlar ve üçüncü taraf istemciler için zengin bir REST API sunar:
+
+| Uç Nokta (Endpoint) | Metot | Açıklama |
+| :--- | :--- | :--- |
+| `/api/status` | `GET` | Anlık durum, sıcaklıklar, katman, fanlar, kapak, IFS slotları ve donanım telemetrisi |
+| `/api/command` | `POST` | G-Code komutu iletme (`pause`, `resume`, `stop`, `home`, `led_on`, `led_off`, `custom`) |
+| `/api/clear_platform` | `POST` | Önceki baskı tamamlandı modalını uzaktan temizleme (`setClearPlatform`) |
+| `/api/model/parse` | `POST` | 3MF veya G-Code dosyasından filament tool'ları, renkleri ve IFS eşlemelerini analiz etme |
+| `/api/upload` | `POST` | G-Code/3MF dosyasını yazıcıya yükleme, IFS slot eşlemeleriyle baskıyı başlatma |
+| `/api/printer/files` | `GET` | Yazıcının dahili flash hafızasındaki kayıtlı dosyaları, gramaj ve süreleri listeleme |
+| `/api/print/start` | `POST` | Yazıcı hafızasındaki bir dosyayı doğrudan yazdırmaya başlatma |
+| `/api/timelapse/list` | `GET` | Kayıtlı time-lapse oturumları ve aktif kayıt durumunu listeleme |
+| `/api/timelapse/video/{id}` | `GET` | Derlenmiş MP4 / WebP time-lapse videosunu izleme veya indirme (`?download=true`) |
+| `/api/timelapse/frames/{id}` | `GET` | İnteraktif scrubber için katman kareleri URL listesi |
+| `/api/camera/stream` | `GET` | Çoklu istemci destekli MJPEG kamera proxy yayını |
+| `/api/camera/snapshot` | `GET` | Tek kare anlık kamera görüntüsü (JPEG) |
+| `/api/settings` | `GET / POST` | Sunucu IP, Port, Seri No ve LAN kodu yapılandırması |
+| `/api/service/restart` | `POST` | Panel arka plan servislerini ve kamera yayıncısını yeniden başlatma |
+| `/api/printer/unlock` | `POST` | Askıda kalan TCP kontrol oturumunu serbest bırakma (`~M602`) |
+| `/api/printer/restart` | `POST` | Yazıcı anakartını yeniden başlatma (`~M999`) |
 
 ---
 

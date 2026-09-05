@@ -39,7 +39,17 @@ SENSOR_DESCRIPTIONS: list[FlashForgeSensorDescription] = [
             "endstop_x": data.get("endstop_x"),
             "endstop_y": data.get("endstop_y"),
             "endstop_z": data.get("endstop_z"),
+            "duraklatildi": data.get("is_paused"),
+            "hata": data.get("is_error"),
+            "duraklatma_nedeni": data.get("pause_reason"),
+            "hata_mesaji": data.get("printer_error"),
         },
+    ),
+    FlashForgeSensorDescription(
+        key="pause_reason",
+        name="Duraklatma / Hata Nedeni",
+        icon="mdi:alert-circle-outline",
+        value_fn=lambda data: data.get("pause_reason") or data.get("printer_error") or "Normal",
     ),
     FlashForgeSensorDescription(
         key="progress",

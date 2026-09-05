@@ -19,25 +19,33 @@ import urllib.request
 import threading
 from collections import deque
 from datetime import datetime
+import zipfile
+import io
+import re
+import xml.etree.ElementTree as ET
+import shutil
+import subprocess
+import time
+from PIL import Image
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 
-PRINTER_HOST = "192.168.1.12"
+PRINTER_HOST = "192.168.1.14"
 PRINTER_PORT = 8899
 RECONNECT_DELAY = 3.0
 WATCH_INTERVAL = 2.0
-PRINTER_SERIAL = ""
-PRINTER_CHECK_CODE = ""
+PRINTER_SERIAL = "SNMQQF9301246"
+PRINTER_CHECK_CODE = "dd89422a"
 
 def load_config():
     global PRINTER_HOST, PRINTER_PORT, PRINTER_SERIAL, PRINTER_CHECK_CODE, RECONNECT_DELAY, WATCH_INTERVAL
-    PRINTER_HOST = os.getenv("FLASHFORGE_HOST", "192.168.1.12")
+    PRINTER_HOST = os.getenv("FLASHFORGE_HOST", "192.168.1.14")
     PRINTER_PORT = int(os.getenv("FLASHFORGE_PORT", "8899"))
     RECONNECT_DELAY = float(os.getenv("FLASHFORGE_RECONNECT_DELAY", "3"))
     WATCH_INTERVAL = float(os.getenv("FLASHFORGE_WATCH_INTERVAL", "2"))
-    PRINTER_SERIAL = os.getenv("FLASHFORGE_SERIAL", "")
-    PRINTER_CHECK_CODE = os.getenv("FLASHFORGE_CHECK_CODE", "")
+    PRINTER_SERIAL = os.getenv("FLASHFORGE_SERIAL", "SNMQQF9301246")
+    PRINTER_CHECK_CODE = os.getenv("FLASHFORGE_CHECK_CODE", "dd89422a")
 
     if os.path.exists(CONFIG_FILE):
         try:
@@ -129,6 +137,12 @@ last_status = {
     "status_flags": "S:? L:? J:? F:?",
     "updated_at": None,
     "error": None,
+    "is_paused": False,
+    "is_error": False,
+    "is_completed": False,
+    "platform_clean_needed": False,
+    "pause_reason": None,
+    "printer_error": None,
     "filament_info": None,
     # Live Tuning variables
     "speed_factor": 100,
@@ -226,6 +240,8 @@ def parse_m119(text: str):
         "led": "?",
         "status_flags": "S:? L:? J:? F:?",
         "temperatures": {"t0": "0/0", "1": "0/0", "bed": "0/0"},
+        "extra_messages": [],
+        "detected_error": None
     }
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     for line in lines:
@@ -239,6 +255,10 @@ def parse_m119(text: str):
             out["status_flags"] = line.split(":", 1)[1].strip()
         elif line.endswith("ok"):
             pass
+        elif any(line.upper().startswith(k) for k in ["ERROR:", "ERR:", "ERRORCODE:", "ERRORMSG:", "FAULT:"]):
+            out["detected_error"] = line.split(":", 1)[1].strip() if ":" in line else line
+        elif any(line.upper().startswith(k) for k in ["WARNING:", "WARN:", "ALARM:", "REASON:"]):
+            out["extra_messages"].append(line.split(":", 1)[1].strip() if ":" in line else line)
         elif ":" in line and any(k in line for k in ["X-max", "Y-max", "Z-min", "LED"]):
             if "X-max:" in line:
                 out["endstop"]["x"] = line.split("X-max:")[-1].strip()
@@ -248,6 +268,10 @@ def parse_m119(text: str):
                 out["endstop"]["z"] = line.split("Z-min:")[-1].strip()
             if line.startswith("LED:"):
                 out["led"] = line.replace("LED:", "").strip()
+
+    if out["machine_status"] in ["ERROR", "STOPPED"] and not out["detected_error"]:
+        out["detected_error"] = f"Yazıcı durumu: {out['machine_status']}"
+
     return out
 
 
@@ -401,10 +425,115 @@ async def refresh_once():
                 filament_info_error = f"HTTP Bağlantı Hatası: {err_str}"
             print(f"HTTP Detail API Error: {e}")
 
+    # Determine active printing file from M119 or HTTP detail API
+    http_file = ""
+    if isinstance(detail_dict, dict):
+        http_file = (
+            detail_dict.get("printFileName") or 
+            detail_dict.get("fileName") or 
+            detail_dict.get("curFileName") or 
+            detail_dict.get("filename") or 
+            detail_dict.get("curFile") or 
+            detail_dict.get("jobName") or ""
+        )
+    active_current_file = parsed_m119.get("current_file", "") or http_file
+
+    # Determine pause / error state and underlying reason
+    machine_status_upper = (parsed_m119.get("machine_status") or "UNKNOWN").strip().upper()
+    is_paused_state = machine_status_upper in ["PAUSED", "PAUSE", "PAUSING"]
+    is_error_state = machine_status_upper in ["ERROR", "STOPPED", "ABORTED"]
+    
+    detected_reason = None
+    detected_error = parsed_m119.get("detected_error")
+    
+    # 1. Door open check
+    door_status = detail_dict.get("doorStatus", "unknown")
+    if door_status == "open" and (is_paused_state or is_error_state):
+        detected_reason = "Ön / Üst Kapak Açık! Yazıcı güvenlik sensörü nedeniyle duraklatıldı. Kapağı kapatıp 'Devam Et' butonuna basabilirsiniz."
+        
+    # 2. Filament lack / runout check
+    filament_lack = detail_dict.get("filamentLack") or detail_dict.get("isFilamentLack")
+    if filament_lack in [True, 1, "1", "true", "True"]:
+        detected_reason = "Filament Bitti veya Algılanmadı! Ekstrüderde filament tespit edilemedi. Yeni filament yükledikten sonra 'Devam Et' butonuna basabilirsiniz."
+        
+    # 3. HTTP detail error or pause reason
+    http_error_code = detail_dict.get("errorCode") or detail_dict.get("errCode")
+    http_error_msg = (
+        detail_dict.get("errorMsg") or 
+        detail_dict.get("errMsg") or 
+        detail_dict.get("pauseReason") or 
+        detail_dict.get("pauseMsg") or
+        detail_dict.get("reason")
+    )
+    if http_error_code or http_error_msg:
+        err_text = f"Hata Kodu: {http_error_code} ({http_error_msg})" if http_error_code and http_error_msg else str(http_error_code or http_error_msg)
+        if is_error_state:
+            detected_error = err_text
+        elif not detected_reason:
+            detected_reason = err_text
+
+    # 4. Status flags filament check (Status: S:1 L:1 J:0 F:0)
+    status_flags = parsed_m119.get("status_flags", "")
+    if is_paused_state and not detected_reason:
+        if "F:1" in status_flags:
+            detected_reason = "Filament Sensörü Tetiklendi (Filament bitti veya besleme kesildi). Lütfen filamenti kontrol edin."
+        elif "J:1" in status_flags:
+            detected_reason = "Baskı Duraklatıldı (Sıkışma veya duraklatma sinyali algılandı)."
+        elif parsed_m119.get("extra_messages"):
+            detected_reason = " / ".join(parsed_m119["extra_messages"])
+        else:
+            layer_val = parsed_m27.get("layer", "0/0")
+            cur_l = layer_val.split("/")[0].strip() if "/" in layer_val else ""
+            if cur_l and cur_l != "0":
+                detected_reason = f"Baskı {cur_l}. katmanda duraklatıldı. Devam etmek için 'Devam Et' butonuna basabilirsiniz."
+            else:
+                detected_reason = "Baskı duraklatıldı. Devam etmek için 'Devam Et' butonuna basabilirsiniz."
+            
+    if is_error_state and not detected_error:
+        detected_error = f"Yazıcı arıza/hata moduna geçti (Durum: {machine_status_upper})."
+
+    # Determine finished/completed print & platform clean state ("Yazdırma tamamlandı, platformu temizleyin!")
+    progress_val = parsed_m27.get("progress", 0)
+    layer_val = parsed_m27.get("layer", "0/0")
+    cur_layer, total_layer = (0, 0)
+    if "/" in layer_val:
+        try:
+            parts = layer_val.split("/")
+            cur_layer = int(parts[0].strip())
+            total_layer = int(parts[1].strip())
+        except Exception:
+            pass
+
+    prev_clean_needed = last_status.get("platform_clean_needed", False)
+    is_completed_state = False
+    
+    is_completed_status = machine_status_upper in [
+        "COMPLETED", "FINISHED", "BUILD_COMPLETED", "PRINT_COMPLETE", "PRINT_COMPLETED", "BUILDING_COMPLETED", "FINISH"
+    ]
+    detail_status = str(detail_dict.get("printStatus", "")).lower()
+    detail_clean_plate = detail_dict.get("cleanPlate")
+    is_active_printing = machine_status_upper in ["BUILDING", "BUILDING_FROM_SD", "PRINTING"]
+    
+    if is_completed_status:
+        is_completed_state = True
+    elif detail_status in ["completed", "finish", "finished"]:
+        is_completed_state = True
+    elif detail_clean_plate is False or detail_dict.get("isCleanPlate") is False:
+        if not (is_active_printing or is_paused_state):
+            is_completed_state = True
+    elif progress_val == 100 and active_current_file and active_current_file not in ["-", "Boşta", "UNKNOWN"]:
+        if not (is_active_printing or is_paused_state):
+            is_completed_state = True
+    elif cur_layer > 0 and total_layer > 0 and cur_layer >= total_layer and active_current_file not in ["-", "Boşta", "UNKNOWN"]:
+        if not (is_active_printing or is_paused_state):
+            is_completed_state = True
+
+    platform_clean_needed = is_completed_state or (prev_clean_needed and not is_active_printing)
+
     status = {
         "machine_status": parsed_m119.get("machine_status", "UNKNOWN"),
         "move_mode": parsed_m119.get("move_mode", "UNKNOWN"),
-        "current_file": parsed_m119.get("current_file", ""),
+        "current_file": active_current_file,
         "progress": parsed_m27.get("progress", 0),
         "layer": parsed_m27.get("layer", "0/0"),
         "temperatures": parsed_m105,
@@ -412,7 +541,13 @@ async def refresh_once():
         "led": parsed_m119.get("led", "?"),
         "status_flags": parsed_m119.get("status_flags", "S:? L:? J:? F:?"),
         "updated_at": datetime.now().strftime("%H:%M:%S"),
-        "error": None if "ERR:" not in m119_text and "ERR:" not in m27_text else m119_text,
+        "is_paused": is_paused_state,
+        "is_error": is_error_state,
+        "is_completed": is_completed_state,
+        "platform_clean_needed": platform_clean_needed,
+        "pause_reason": detected_reason,
+        "printer_error": detected_error,
+        "error": detected_error if detected_error else (None if "ERR:" not in m119_text and "ERR:" not in m27_text else m119_text),
         "filament_info": filament_info,
         "filament_info_error": filament_info_error,
         # HTTP detail API values
@@ -456,6 +591,13 @@ async def refresh_once():
             
         last_status.update(status)
         status_history.append(status)
+
+        # Drive automated timelapse frame capture
+        try:
+            if 'timelapse_manager' in globals():
+                timelapse_manager.process_status(status)
+        except Exception as tle:
+            print(f"TimeLapse process error: {tle}")
 
 
 async def watch_loop():
@@ -508,7 +650,16 @@ async def dashboard(request: Request):
 @app.get("/api/status")
 async def api_status():
     async with lock:
-        return JSONResponse(dict(last_status))
+        st = dict(last_status)
+    try:
+        if 'timelapse_manager' in globals():
+            active = timelapse_manager.get_active_session_info()
+            st["timelapse_active"] = active is not None
+            if active:
+                st["timelapse_frames"] = active.get("captured_frames", 0)
+    except Exception:
+        pass
+    return JSONResponse(st)
 
 
 @app.post("/api/command")
@@ -597,6 +748,18 @@ async def api_command(command: dict):
             
         gcode_payload = "".join(lines)
         raw = await send_command(gcode_payload.encode("utf-8"))
+    elif c == "clear_platform":
+        loop = asyncio.get_event_loop()
+        res = await loop.run_in_executor(
+            None, _clear_platform_sync, PRINTER_HOST, PRINTER_PORT, PRINTER_SERIAL, PRINTER_CHECK_CODE
+        )
+        async with lock:
+            last_status["platform_clean_needed"] = False
+            last_status["is_completed"] = False
+            last_status["current_file"] = ""
+            last_status["progress"] = 0
+            last_status["layer"] = "0/0"
+        return JSONResponse(res)
     elif c in cmd_map:
         raw = await send_command(cmd_map[c])
     else:
@@ -606,10 +769,417 @@ async def api_command(command: dict):
     return JSONResponse({"ok": True, "response": text.strip()})
 
 
-def _upload_gcode_sync(host, serial, check_code, filename, file_bytes, print_now=False):
+def _clear_platform_sync(host, port, serial, check_code):
+    """Sends setClearPlatform commands via HTTP port 8898 and resets TCP control session (~M26) to dismiss 'Platformu Temizleyin!'."""
+    http_res = None
+    if serial and check_code:
+        import urllib.request
+        url = f"http://{host}:8898/control"
+        headers = {
+            "serialNumber": serial,
+            "serialNo": serial,
+            "checkCode": check_code,
+            "Content-Type": "application/json"
+        }
+        cmds = [
+            {"cmd": "stateCtrl_cmd", "args": {"action": "setClearPlatform"}},
+            {"cmd": "plateDetectControl_cmd", "args": {"action": "setClearPlatform"}}
+        ]
+        for cmd_payload in cmds:
+            payload = {
+                "serialNumber": serial,
+                "checkCode": check_code,
+                "payload": cmd_payload
+            }
+            try:
+                req = urllib.request.Request(
+                    url,
+                    data=json.dumps(payload).encode('utf-8'),
+                    headers=headers,
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    http_res = resp.read().decode('utf-8', errors='ignore')
+            except Exception as he:
+                http_res = f"HTTP ERR: {he}"
+
+    # Also send TCP M26 to ensure print job state is cleared in Marlin/Klipper layer
+    tcp_res = ""
+    try:
+        with socket.create_connection((host, port), timeout=3) as s:
+            s.sendall(b"~M601 S1\r\n")
+            socket_recv_until(s, markers=(b"ok\r\n", b"Control", b"CMD"), timeout=2)
+            s.sendall(b"~M26\r\n")
+            res = socket_recv_until(s, markers=(b"ok\r\n",), timeout=2)
+            tcp_res = res.decode('utf-8', errors='ignore').strip()
+            s.sendall(b"~M602\r\n")
+            socket_recv_until(s, markers=(b"ok\r\n",), timeout=1)
+    except Exception as e:
+        tcp_res = f"TCP ERR: {e}"
+
+    return {
+        "ok": True,
+        "message": "Platform temizleme onayı yazıcıya iletildi. Ekran uyarısı kapatıldı ve yazıcı yeni baskı için hazır.",
+        "http_response": http_res,
+        "tcp": tcp_res
+    }
+
+
+@app.post("/api/clear_platform")
+async def api_clear_platform():
+    """Clears the completed print modal on printer and resets platform clean state."""
+    loop = asyncio.get_event_loop()
+    res = await loop.run_in_executor(
+        None, _clear_platform_sync, PRINTER_HOST, PRINTER_PORT, PRINTER_SERIAL, PRINTER_CHECK_CODE
+    )
+    async with lock:
+        last_status["platform_clean_needed"] = False
+        last_status["is_completed"] = False
+        last_status["current_file"] = ""
+        last_status["progress"] = 0
+        last_status["layer"] = "0/0"
+    asyncio.create_task(refresh_once())
+    return JSONResponse(res)
+
+
+def extract_model_tools(filename: str, file_bytes: bytes) -> list:
+    """Extracts all tool IDs, material names, and colors from a .3mf or .gcode file,
+    checking 3MF metadata, XML filament tags, and tail/head slicer configurations.
+    """
+    if not file_bytes:
+        return [{"toolId": 0, "materialName": "PLA", "toolMaterialColor": "#161616"}]
+
+    tools = []
+    clean_name = os.path.basename(filename.replace("\\", "/")).strip()
+    is_zip = file_bytes.startswith(b"PK\x03\x04") or clean_name.lower().endswith(".3mf")
+
+    def normalize_color(col: str) -> str:
+        if not col:
+            return "#161616"
+        c = col.strip()
+        if not c.startswith("#"):
+            c = "#" + c
+        # If 8 hex characters after # (e.g. #FFFFFFFE or #000000FF RGBA), trim to 6-char RGB
+        if len(c) == 9:
+            c = c[:7]
+        return c
+
+    # Helper to parse text for filament metadata (both head and tail)
+    def parse_gcode_text_for_tools(text: str) -> list:
+        found_tools = []
+        # 1. XML filament tags (common in OrcaSlicer, BambuStudio, Flash Studio G-code)
+        for m in re.finditer(r'<filament\s+([^>]+)/>', text):
+            attribs = dict(re.findall(r'(\w+)=["\']([^"\']+)["\']', m.group(1)))
+            f_id = attribs.get("id", "")
+            f_type = attribs.get("type", "PLA")
+            f_color = attribs.get("color", "")
+            if f_id.isdigit():
+                t_id = int(f_id) - 1
+                found_tools.append({
+                    "toolId": max(0, t_id),
+                    "materialName": f_type or "PLA",
+                    "toolMaterialColor": normalize_color(f_color)
+                })
+        if found_tools:
+            return found_tools
+
+        # 2. Key-value comments: filament_colour / extruder_colour / filament_type
+        colors = []
+        types = []
+        c_match = re.search(r';\s*(?:filament_colour|extruder_colour|filament_multi_colour)\s*[:=]\s*([^\r\n]+)', text, re.IGNORECASE)
+        if c_match:
+            raw_c = c_match.group(1).replace(';', ',')
+            c_list = [c.strip() for c in raw_c.split(',') if c.strip()]
+            colors = [normalize_color(c) for c in c_list]
+
+        t_match = re.search(r';\s*filament_type\s*[:=]\s*([^\r\n]+)', text, re.IGNORECASE)
+        if t_match:
+            raw_t = t_match.group(1).replace(';', ',')
+            types = [t.strip() for t in raw_t.split(',') if t.strip()]
+
+        if colors:
+            for idx, col in enumerate(colors):
+                m_type = types[idx] if idx < len(types) else "PLA"
+                found_tools.append({
+                    "toolId": idx,
+                    "materialName": m_type or "PLA",
+                    "toolMaterialColor": col
+                })
+            return found_tools
+
+        # 3. Check for ; filament: 1,2 or ; filament_density: 1.24,1.24
+        fil_cnt_match = re.search(r';\s*filament\s*[:=]\s*([0-9,\s]+)', text, re.IGNORECASE)
+        if fil_cnt_match:
+            fil_nums = [n.strip() for n in fil_cnt_match.group(1).split(',') if n.strip().isdigit()]
+            if len(fil_nums) > 1:
+                default_palette = ["#161616", "#FFFFFF", "#F330F9", "#00AAFF"]
+                for idx in range(len(fil_nums)):
+                    found_tools.append({
+                        "toolId": idx,
+                        "materialName": "PLA",
+                        "toolMaterialColor": default_palette[idx % len(default_palette)]
+                    })
+                return found_tools
+
+        return found_tools
+
+    # Helper to check G-code tool changes (T0, T1, T2, T3)
+    def scan_gcode_tool_changes(text: str) -> set:
+        tools_seen = set()
+        for t in re.findall(r'^[Tt](\d+)', text, re.MULTILINE):
+            tools_seen.add(int(t))
+        return tools_seen
+
+    # 1. If 3MF / ZIP
+    if is_zip:
+        try:
+            with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
+                # A. Metadata/slice_info.config
+                for name in z.namelist():
+                    if name.lower().endswith("slice_info.config"):
+                        content = z.read(name).decode("utf-8", errors="ignore")
+                        try:
+                            root = ET.fromstring(content)
+                            for fil in root.findall(".//filament"):
+                                fil_id = fil.attrib.get("id", "")
+                                fil_type = fil.attrib.get("type", "PLA")
+                                fil_color = fil.attrib.get("color", "")
+                                if fil_id.isdigit():
+                                    t_id = int(fil_id) - 1
+                                    tools.append({
+                                        "toolId": max(0, t_id),
+                                        "materialName": fil_type or "PLA",
+                                        "toolMaterialColor": normalize_color(fil_color)
+                                    })
+                        except Exception:
+                            pass
+                        if tools:
+                            break
+
+                # B. Metadata/project_settings.config
+                if not tools:
+                    for name in z.namelist():
+                        if name.lower().endswith("project_settings.config"):
+                            try:
+                                cfg = json.loads(z.read(name).decode("utf-8", errors="ignore"))
+                                colours = cfg.get("filament_colour", [])
+                                types = cfg.get("filament_type", [])
+                                if colours:
+                                    for idx, col in enumerate(colours):
+                                        m_type = types[idx] if idx < len(types) else "PLA"
+                                        tools.append({
+                                            "toolId": idx,
+                                            "materialName": m_type or "PLA",
+                                            "toolMaterialColor": normalize_color(col)
+                                        })
+                            except Exception:
+                                pass
+                            if tools:
+                                break
+
+                # C. Check embedded G-code in 3MF
+                if not tools:
+                    g_cands = [n for n in z.namelist() if n.lower().endswith(".gcode")]
+                    if g_cands:
+                        chosen = max(g_cands, key=lambda n: z.getinfo(n).file_size)
+                        raw_g = z.read(chosen)
+                        head = raw_g[:131072].decode("utf-8", errors="ignore")
+                        tail = raw_g[-262144:].decode("utf-8", errors="ignore") if len(raw_g) > 262144 else head
+                        tools = parse_gcode_text_for_tools(tail) or parse_gcode_text_for_tools(head)
+        except Exception as ze:
+            print(f"3MF parse error: {ze}")
+
+    # 2. Standalone G-code
+    if not tools:
+        head = file_bytes[:131072].decode("utf-8", errors="ignore")
+        tail = file_bytes[-262144:].decode("utf-8", errors="ignore") if len(file_bytes) > 262144 else head
+        tools = parse_gcode_text_for_tools(tail) or parse_gcode_text_for_tools(head)
+
+    # 3. Check tool change commands T0, T1, ... to ensure all active tools exist
+    try:
+        sample_text = ""
+        if is_zip:
+            with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
+                g_cands = [n for n in z.namelist() if n.lower().endswith(".gcode")]
+                if g_cands:
+                    chosen = max(g_cands, key=lambda n: z.getinfo(n).file_size)
+                    sample_text = z.read(chosen).decode("utf-8", errors="ignore")
+        else:
+            sample_text = file_bytes.decode("utf-8", errors="ignore")
+
+        if sample_text:
+            active_tools = scan_gcode_tool_changes(sample_text)
+            if active_tools:
+                max_t = max(active_tools)
+                existing_tool_ids = {t["toolId"] for t in tools}
+                default_palette = ["#161616", "#FFFFFF", "#F330F9", "#00AAFF"]
+                for t_num in range(max_t + 1):
+                    if t_num in active_tools and t_num not in existing_tool_ids:
+                        tools.append({
+                            "toolId": t_num,
+                            "materialName": "PLA",
+                            "toolMaterialColor": default_palette[t_num % len(default_palette)]
+                        })
+    except Exception:
+        pass
+
+    # Sort tools by toolId
+    tools.sort(key=lambda x: x["toolId"])
+
+    # Fallback if empty: at least 1 tool
+    if not tools:
+        tools = [{
+            "toolId": 0,
+            "materialName": "PLA",
+            "toolMaterialColor": "#161616"
+        }]
+
+    return tools
+
+
+@app.post("/api/model/parse")
+async def api_model_parse(request: Request, filename: str):
+    """Extracts tool & filament color requirements from a 3MF or G-code file and returns current IFS slot info."""
+    body = await request.body()
+    if not body:
+        return JSONResponse({"ok": False, "error": "Boş dosya."}, status_code=400)
+    tools = extract_model_tools(filename, body)
+    async with lock:
+        filament_info = last_status.get("filament_info")
+        clean_needed = last_status.get("platform_clean_needed", False) or last_status.get("is_completed", False)
+    return {
+        "ok": True,
+        "filename": filename,
+        "tools": tools,
+        "filament_info": filament_info,
+        "clean_needed": clean_needed
+    }
+
+
+def _get_printer_gcode_list_sync(host: str, serial: str, check_code: str) -> dict:
+    """Queries /gcodeList from FlashForge port 8898."""
+    import urllib.request
+    url = f"http://{host}:8898/gcodeList"
+    payload = {"serialNumber": serial, "checkCode": check_code}
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=8) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _start_print_job_sync(
+    host: str,
+    serial: str,
+    check_code: str,
+    filename: str,
+    leveling_before_print: bool = True,
+    time_lapse_video: bool = True,
+    use_matl_station: bool = True,
+    flow_calibration: bool = False,
+    first_layer_inspection: bool = False,
+    material_mappings: list = None
+) -> dict:
+    """Sends /printGcode POST request to FlashForge port 8898 to start printing the specified file."""
+    import urllib.request
+    url = f"http://{host}:8898/printGcode"
+    clean_filename = os.path.basename(filename.replace("\\", "/"))
+
+    mappings_clean = []
+    if material_mappings and use_matl_station:
+        if isinstance(material_mappings, str):
+            try:
+                material_mappings = json.loads(material_mappings)
+            except Exception:
+                material_mappings = []
+        if isinstance(material_mappings, list):
+            for m in material_mappings:
+                if isinstance(m, dict):
+                    mappings_clean.append({
+                        "toolId": int(m.get("toolId", 0)),
+                        "slotId": int(m.get("slotId", 0)),
+                        "materialName": str(m.get("materialName", "PLA")),
+                        "toolMaterialColor": str(m.get("toolMaterialColor", "#161616")),
+                        "slotMaterialColor": str(m.get("slotMaterialColor", m.get("toolMaterialColor", "#161616")))
+                    })
+
+    # If materialMappings was not provided, auto-read from printer's parsed gcodeListDetail
+    if use_matl_station and not mappings_clean:
+        try:
+            glist = _get_printer_gcode_list_sync(host, serial, check_code)
+            for item in glist.get("gcodeListDetail", []):
+                if item.get("gcodeFileName") == clean_filename:
+                    for td in item.get("gcodeToolDatas", []):
+                        color = str(td.get("materialColor", "#161616"))
+                        mappings_clean.append({
+                            "toolId": int(td.get("toolId", 0)),
+                            "slotId": int(td.get("slotId", 0)),
+                            "materialName": str(td.get("materialName", "PLA")),
+                            "toolMaterialColor": color,
+                            "slotMaterialColor": color
+                        })
+                    break
+        except Exception as ge:
+            print(f"Auto-extracting tools from printer gcodeList failed: {ge}")
+
+    # Fallback to default single tool if still empty but IFS requested
+    if use_matl_station and not mappings_clean:
+        mappings_clean.append({
+            "toolId": 0,
+            "slotId": 0,
+            "materialName": "PLA",
+            "toolMaterialColor": "#161616",
+            "slotMaterialColor": "#161616"
+        })
+
+    payload = {
+        "serialNumber": serial,
+        "checkCode": check_code,
+        "fileName": clean_filename,
+        "levelingBeforePrint": bool(leveling_before_print),
+        "flowCalibration": bool(flow_calibration),
+        "firstLayerInspection": bool(first_layer_inspection),
+        "timeLapseVideo": bool(time_lapse_video),
+        "useMatlStation": bool(use_matl_station),
+        "gcodeToolCnt": len(mappings_clean) if use_matl_station else 0,
+        "materialMappings": mappings_clean if use_matl_station else []
+    }
+
+    req_data = json.dumps(payload).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "serialNumber": serial,
+        "serialNo": serial,
+        "checkCode": check_code,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) FlashForge-Panel/1.0"
+    }
+    req = urllib.request.Request(
+        url,
+        data=req_data,
+        headers=headers,
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _upload_gcode_sync(
+    host, serial, check_code, filename, file_bytes,
+    print_now=False,
+    leveling_before_print=True,
+    time_lapse_video=True,
+    use_matl_station=True,
+    flow_calibration=False,
+    first_layer_inspection=False,
+    material_mappings=None
+):
     import urllib.request
     url = f"http://{host}:8898/uploadGcode"
-    
+
     boundary = "----WebKitFormBoundaryFlashForgeAD5X"
     body = bytearray()
     body.extend(f"--{boundary}\r\n".encode('utf-8'))
@@ -618,52 +1188,648 @@ def _upload_gcode_sync(host, serial, check_code, filename, file_bytes, print_now
     body.extend(file_bytes)
     body.extend(b"\r\n")
     body.extend(f"--{boundary}--\r\n".encode('utf-8'))
-    
+
     content_type = f"multipart/form-data; boundary={boundary}"
-    
+
+    # Process material mappings
+    mappings_list = []
+    if material_mappings:
+        if isinstance(material_mappings, str):
+            try:
+                mappings_list = json.loads(material_mappings)
+            except Exception:
+                mappings_list = []
+        elif isinstance(material_mappings, list):
+            mappings_list = material_mappings
+
+    if not mappings_list:
+        # Auto extract tools from file
+        detected_tools = extract_model_tools(filename, file_bytes)
+        for t in detected_tools:
+            t_id = t.get("toolId", 0)
+            mappings_list.append({
+                "toolId": t_id,
+                "slotId": t_id if t_id < 4 else 0,
+                "materialName": t.get("materialName", "PLA"),
+                "toolMaterialColor": t.get("toolMaterialColor", "#161616"),
+                "slotMaterialColor": t.get("toolMaterialColor", "#161616")
+            })
+
+    tool_cnt = len(mappings_list) if mappings_list else 1
+    mappings_json_str = json.dumps(mappings_list)
+
     headers = {
         "serialNumber": serial,
         "serialNo": serial,
         "checkCode": check_code,
         "fileSize": str(len(file_bytes)),
-        "printNow": "true" if print_now else "false",
+        "printNow": "1" if print_now else "0",
+        "levelingBeforePrint": "1" if leveling_before_print else "0",
+        "flowCalibration": "1" if flow_calibration else "0",
+        "firstLayerInspection": "1" if first_layer_inspection else "0",
+        "timeLapseVideo": "1" if time_lapse_video else "0",
+        "useMatlStation": "1" if use_matl_station else "0",
+        "gcodeToolCnt": str(tool_cnt),
+        "materialMappings": mappings_json_str,
         "Content-Type": content_type
     }
-    
+
     req = urllib.request.Request(
         url,
         data=bytes(body),
         headers=headers,
         method="POST"
     )
-    with urllib.request.urlopen(req, timeout=60) as response:
+    with urllib.request.urlopen(req, timeout=90) as response:
         return json.loads(response.read().decode())
 
 
 @app.post("/api/upload")
-async def api_upload(request: Request, filename: str, print_now: bool = False):
+async def api_upload(
+    request: Request,
+    filename: str,
+    print_now: bool = False,
+    force_clean: bool = False,
+    leveling_before_print: bool = True,
+    time_lapse_video: bool = True,
+    use_matl_station: bool = True,
+    flow_calibration: bool = False,
+    first_layer_inspection: bool = False,
+    material_mappings: str = None
+):
     if not PRINTER_SERIAL or not PRINTER_CHECK_CODE:
         return JSONResponse({"ok": False, "error": "Seri Numarası veya LAN Kodu ayarlanmamış"}, status_code=400)
-    
+
     try:
         file_bytes = await request.body()
         if not file_bytes:
             return JSONResponse({"ok": False, "error": "Dosya içeriği boş"}, status_code=400)
-            
+
         loop = asyncio.get_event_loop()
-        res = await loop.run_in_executor(
-            None, _upload_gcode_sync, PRINTER_HOST, PRINTER_SERIAL, PRINTER_CHECK_CODE, filename, file_bytes, print_now
-        )
-        
+        # Save to local cache for 3D preview
+        try:
+            save_to_gcode_cache(filename, file_bytes)
+        except Exception as ce:
+            print(f"Error caching G-code file: {ce}")
+
+        # Proactively clear previous print session if requested or platform cleaning was needed
+        async with lock:
+            clean_needed = last_status.get("platform_clean_needed", False) or last_status.get("is_completed", False)
+
+        if force_clean or clean_needed:
+            print("Upload: Clearing previous print session / platform modal before sending file...")
+            await loop.run_in_executor(
+                None, _clear_platform_sync, PRINTER_HOST, PRINTER_PORT, PRINTER_SERIAL, PRINTER_CHECK_CODE
+            )
+            await asyncio.sleep(1.0)
+
+        try:
+            res = await loop.run_in_executor(
+                None,
+                _upload_gcode_sync,
+                PRINTER_HOST,
+                PRINTER_SERIAL,
+                PRINTER_CHECK_CODE,
+                filename,
+                file_bytes,
+                print_now,
+                leveling_before_print,
+                time_lapse_video,
+                use_matl_station,
+                flow_calibration,
+                first_layer_inspection,
+                material_mappings
+            )
+        except Exception as upload_err:
+            err_msg = str(upload_err)
+            # Detect FlashForge rejection caused by uncleared platform modal (Broken pipe / Connection reset)
+            is_pipe_error = any(k in err_msg for k in ["Broken pipe", "Errno 32", "10054", "ConnectionResetError", "RemoteDisconnected"])
+            if is_pipe_error:
+                print("Upload encountered Broken pipe! Attempting auto-clear setClearPlatform sequence and retry upload...")
+                await loop.run_in_executor(
+                    None, _clear_platform_sync, PRINTER_HOST, PRINTER_PORT, PRINTER_SERIAL, PRINTER_CHECK_CODE
+                )
+                await asyncio.sleep(1.5)
+                try:
+                    res = await loop.run_in_executor(
+                        None,
+                        _upload_gcode_sync,
+                        PRINTER_HOST,
+                        PRINTER_SERIAL,
+                        PRINTER_CHECK_CODE,
+                        filename,
+                        file_bytes,
+                        print_now,
+                        leveling_before_print,
+                        time_lapse_video,
+                        use_matl_station,
+                        flow_calibration,
+                        first_layer_inspection,
+                        material_mappings
+                    )
+                except Exception as retry_err:
+                    async with lock:
+                        last_status["platform_clean_needed"] = True
+                    return JSONResponse({
+                        "ok": False,
+                        "error": "Yazıcı yeni baskıyı reddetti (Bağlantı koptu). Önceki baskı tamamlandığı için yazıcı 'Platformu Temizleyin' onayı bekliyor. Lütfen tablayı boşaltıp 'Platformu Temizle' butonuna basarak tekrar deneyin.",
+                        "need_clear_platform": True
+                    }, status_code=409)
+            else:
+                raise upload_err
+
         code_val = res.get("code")
         msg_val = res.get("message")
         if code_val == 0 or code_val == 200 or msg_val == "success":
-            return {"ok": True, "message": "Dosya başarıyla yüklendi" + (" ve baskı başlatıldı." if print_now else ".")}
+            async with lock:
+                last_status["platform_clean_needed"] = False
+                last_status["is_completed"] = False
+
+            clean_name = os.path.basename(filename.replace("\\", "/"))
+            if print_now:
+                # Brief wait for printer file write to sync to disk
+                await asyncio.sleep(0.8)
+                start_success = False
+                start_res = None
+                try:
+                    start_res = await loop.run_in_executor(
+                        None,
+                        _start_print_job_sync,
+                        PRINTER_HOST,
+                        PRINTER_SERIAL,
+                        PRINTER_CHECK_CODE,
+                        clean_name,
+                        leveling_before_print,
+                        time_lapse_video,
+                        use_matl_station,
+                        flow_calibration,
+                        first_layer_inspection,
+                        material_mappings
+                    )
+                    print(f"Print start response from /printGcode: {start_res}")
+                    start_code = start_res.get("code") if isinstance(start_res, dict) else -1
+                    if start_code in (0, 200) or str(start_res.get("message", "")).lower() == "success":
+                        start_success = True
+                    else:
+                        start_err_msg = start_res.get("message", f"Yazıcı hata kodu: {start_code}")
+                except Exception as start_e:
+                    print(f"Error calling /printGcode: {start_e}")
+                    start_err_msg = str(start_e)
+
+                # Fallback to TCP port 8899 M23/M24 ONLY if HTTP /printGcode was completely unreachable
+                if not start_success and start_res is None:
+                    print(f"/printGcode unreachable ({start_err_msg}), attempting fallback TCP ~M23 / ~M24...")
+                    try:
+                        m23_cmd = f"~M23 0:/user/{clean_name}\r\n".encode("utf-8")
+                        tcp_res = await send_command(m23_cmd)
+                        print(f"TCP M23 fallback response: {tcp_res}")
+                        if b"File selected" in tcp_res:
+                            m24_res = await send_command(b"~M24\r\n")
+                            if b"ok" in m24_res or b"CMD" in m24_res:
+                                start_success = True
+                    except Exception as tcp_e:
+                        print(f"TCP M23/M24 fallback error: {tcp_e}")
+
+                asyncio.create_task(refresh_once())
+                if start_success:
+                    return {"ok": True, "message": f"Dosya '{clean_name}' yazıcıya yüklendi ve baskı başlatıldı."}
+                else:
+                    return JSONResponse({
+                        "ok": False,
+                        "error": f"Dosya yazıcıya yüklendi fakat baskı başlatılamadı: {start_err_msg}"
+                    }, status_code=500)
+
+            asyncio.create_task(refresh_once())
+            return {"ok": True, "message": f"Dosya '{clean_name}' başarıyla yüklendi."}
         else:
-            return JSONResponse({"ok": False, "error": f"Yazıcı hata döndürdü - Kod: {code_val}, Mesaj: {msg_val}"}, status_code=500)
-            
+            is_clean_err = any(k in str(msg_val).lower() for k in ["clean", "platform", "busy", "printing"])
+            return JSONResponse({
+                "ok": False,
+                "error": f"Yazıcı hata döndürdü - Kod: {code_val}, Mesaj: {msg_val}",
+                "need_clear_platform": is_clean_err
+            }, status_code=500)
+
     except Exception as e:
-        return JSONResponse({"ok": False, "error": f"Bağlantı hatası: {str(e)}"}, status_code=500)
+        err_str = str(e)
+        is_pipe_err = any(k in err_str for k in ["Broken pipe", "Errno 32", "10054"])
+        if is_pipe_err:
+            return JSONResponse({
+                "ok": False,
+                "error": "Bağlantı koptu (Broken pipe). Yazıcıda önceki baskı tamamlanmış ve 'Platformu Temizleyin' uyarısı aktif olabilir. Lütfen platformu temizleyip 'Platformu Temizle' butonuna basarak tekrar deneyin.",
+                "need_clear_platform": True
+            }, status_code=409)
+        return JSONResponse({"ok": False, "error": f"Bağlantı hatası: {err_str}"}, status_code=500)
+
+
+class StartPrintModel(BaseModel):
+    filename: str
+    leveling_before_print: bool = True
+    time_lapse_video: bool = True
+    use_matl_station: bool = True
+    flow_calibration: bool = False
+    first_layer_inspection: bool = False
+    material_mappings: list = None
+
+
+@app.get("/api/printer/files")
+async def api_printer_files():
+    """Returns the list of stored files and print metadata directly from printer flash memory."""
+    if not PRINTER_SERIAL or not PRINTER_CHECK_CODE:
+        return JSONResponse({"ok": False, "error": "Seri Numarası veya LAN Kodu ayarlanmamış"}, status_code=400)
+    loop = asyncio.get_event_loop()
+    try:
+        res = await loop.run_in_executor(
+            None, _get_printer_gcode_list_sync, PRINTER_HOST, PRINTER_SERIAL, PRINTER_CHECK_CODE
+        )
+        return JSONResponse({"ok": True, "data": res})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@app.post("/api/print/start")
+async def api_print_start(params: StartPrintModel):
+    """Starts printing an existing file stored on the printer's storage."""
+    if not PRINTER_SERIAL or not PRINTER_CHECK_CODE:
+        return JSONResponse({"ok": False, "error": "Seri Numarası veya LAN Kodu ayarlanmamış"}, status_code=400)
+    
+    clean_name = os.path.basename(params.filename.replace("\\", "/")).strip()
+    if not clean_name:
+        return JSONResponse({"ok": False, "error": "Dosya adı belirtilmedi"}, status_code=400)
+        
+    loop = asyncio.get_event_loop()
+    start_success = False
+    start_err_msg = ""
+    start_res = None
+    try:
+        start_res = await loop.run_in_executor(
+            None,
+            _start_print_job_sync,
+            PRINTER_HOST,
+            PRINTER_SERIAL,
+            PRINTER_CHECK_CODE,
+            clean_name,
+            params.leveling_before_print,
+            params.time_lapse_video,
+            params.use_matl_station,
+            params.flow_calibration,
+            params.first_layer_inspection,
+            params.material_mappings
+        )
+        print(f"api_print_start response: {start_res}")
+        start_code = start_res.get("code") if isinstance(start_res, dict) else -1
+        if start_code in (0, 200) or str(start_res.get("message", "")).lower() == "success":
+            start_success = True
+        else:
+            start_err_msg = start_res.get("message", f"Yazıcı hata kodu: {start_code}")
+    except Exception as e:
+        start_err_msg = str(e)
+        
+    if not start_success and start_res is None:
+        try:
+            m23_cmd = f"~M23 0:/user/{clean_name}\r\n".encode("utf-8")
+            tcp_res = await send_command(m23_cmd)
+            if b"File selected" in tcp_res:
+                m24_res = await send_command(b"~M24\r\n")
+                if b"ok" in m24_res or b"CMD" in m24_res:
+                    start_success = True
+        except Exception as tcp_e:
+            print(f"api_print_start TCP fallback error: {tcp_e}")
+
+    if start_success:
+        async with lock:
+            last_status["platform_clean_needed"] = False
+            last_status["is_completed"] = False
+            last_status["current_file"] = clean_name
+        asyncio.create_task(refresh_once())
+        return {"ok": True, "message": f"'{clean_name}' baskısı başarıyla başlatıldı."}
+    else:
+        return JSONResponse({"ok": False, "error": f"Baskı başlatılamadı: {start_err_msg}"}, status_code=500)
+
+
+GCODE_CACHE_DIR = os.path.join(BASE_DIR, "gcode_cache")
+os.makedirs(GCODE_CACHE_DIR, exist_ok=True)
+
+
+def save_to_gcode_cache(filename: str, file_bytes: bytes) -> str:
+    """Saves uploaded or downloaded file to local cache. If it's a .3mf or .gx, extracts and saves the internal pure .gcode too."""
+    clean_name = os.path.basename(filename).strip()
+    if not clean_name or not file_bytes:
+        return ""
+    main_path = os.path.join(GCODE_CACHE_DIR, clean_name)
+    with open(main_path, "wb") as f:
+        f.write(file_bytes)
+        
+    base_stem = os.path.splitext(clean_name)[0]
+    gcode_extracted_name = None
+
+    # 1. Check if it's a .3mf or ZIP archive (by magic bytes PK\x03\x04 or extension)
+    is_zip = file_bytes.startswith(b"PK\x03\x04") or clean_name.lower().endswith(".3mf")
+    if is_zip:
+        try:
+            with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
+                gcode_candidates = [n for n in z.namelist() if n.lower().endswith(".gcode") or n.lower().endswith(".g")]
+                if gcode_candidates:
+                    # Pick the largest gcode file in the zip (actual toolpath plate)
+                    chosen = max(gcode_candidates, key=lambda n: z.getinfo(n).file_size)
+                    gcode_data = z.read(chosen)
+                    gcode_extracted_name = base_stem + ".gcode"
+                    with open(os.path.join(GCODE_CACHE_DIR, gcode_extracted_name), "wb") as gf:
+                        gf.write(gcode_data)
+        except Exception as ze:
+            print(f"Error extracting G-code from .3mf: {ze}")
+
+    # 2. Check if it's a FlashPrint .gx file
+    elif clean_name.lower().endswith(".gx") or file_bytes.startswith(b"fff\x00") or file_bytes.startswith(b"gx\x00"):
+        try:
+            markers = [b"\n;", b"\nG90", b"\nG91", b"\nM82", b"\nM83", b"\nM118", b"\nG28"]
+            best_pos = -1
+            for m in markers:
+                idx = file_bytes.find(m)
+                if idx != -1:
+                    pos = idx + 1
+                    if best_pos == -1 or pos < best_pos:
+                        best_pos = pos
+            if best_pos != -1:
+                gcode_data = file_bytes[best_pos:]
+                gcode_extracted_name = base_stem + ".gcode"
+                with open(os.path.join(GCODE_CACHE_DIR, gcode_extracted_name), "wb") as gf:
+                    gf.write(gcode_data)
+        except Exception as gxe:
+            print(f"Error extracting G-code from .gx: {gxe}")
+            
+    return gcode_extracted_name or clean_name
+
+
+def find_cached_gcode(filename: str) -> str:
+    """Finds matching cached gcode file, prioritizing extracted pure .gcode over container formats."""
+    if not filename:
+        return ""
+    clean = os.path.basename(filename).strip()
+    if not clean:
+        return ""
+        
+    base_stem = os.path.splitext(clean)[0]
+    # Prioritize extracted .gcode first
+    candidates = [
+        base_stem + ".gcode",
+        clean if clean.lower().endswith(".gcode") else "",
+        clean,
+        clean + ".gcode",
+        clean + ".3mf",
+        base_stem + ".3mf",
+        clean + ".gx",
+        base_stem + ".gx"
+    ]
+    candidates = [c for c in candidates if c]
+    
+    # 1. Exact match
+    for cand in candidates:
+        p = os.path.join(GCODE_CACHE_DIR, cand)
+        if os.path.isfile(p) and os.path.getsize(p) > 0:
+            return p
+            
+    # 2. Case-insensitive match in GCODE_CACHE_DIR
+    try:
+        existing = os.listdir(GCODE_CACHE_DIR)
+        for cand in candidates:
+            cand_lower = cand.lower()
+            for f in existing:
+                if f.lower() == cand_lower:
+                    p = os.path.join(GCODE_CACHE_DIR, f)
+                    if os.path.isfile(p) and os.path.getsize(p) > 0:
+                        return p
+    except Exception:
+        pass
+        
+    return ""
+
+
+def _download_from_printer_sync(host: str, filename: str, serial: str = "", check_code: str = "") -> bytes:
+    """Attempts to fetch the G-code/3MF file directly from printer via FTP (port 21) or HTTP (port 8898)."""
+    import urllib.request
+    import urllib.parse
+    
+    # Normalize filename, stripping any drive prefix (e.g. 0:/data/...)
+    clean_name = filename.replace("\\", "/").split("/")[-1].strip()
+    if not clean_name:
+        return None
+
+    name_without_ext = os.path.splitext(clean_name)[0].lower()
+
+    # 1. Try FTP on port 21 (FlashForge default internal storage)
+    try:
+        from ftplib import FTP
+        import io
+
+        # Build candidate authentication pairs
+        auth_pairs = [("admin", ""), ("anonymous", "")]
+        if check_code:
+            auth_pairs.insert(0, ("admin", check_code))
+            auth_pairs.append(("root", check_code))
+        auth_pairs.append(("", ""))
+
+        for user, pw in auth_pairs:
+            try:
+                ftp = FTP(timeout=3)
+                ftp.connect(host, 21, timeout=3)
+                ftp.login(user, pw)
+                
+                candidate_paths = [
+                    f"/data/{clean_name}",
+                    f"/{clean_name}",
+                    f"/data/gcode/{clean_name}",
+                    f"/data/user/{clean_name}",
+                    f"/data/{name_without_ext}.gcode",
+                    f"/data/{name_without_ext}.3mf",
+                    f"/data/{name_without_ext}.gx"
+                ]
+
+                # Scan remote directories to locate the file dynamically
+                for scan_dir in ["/data", "/data/user", "/"]:
+                    try:
+                        remote_files = ftp.nlst(scan_dir)
+                        for r_file in remote_files:
+                            base_entry = r_file.replace("\\", "/").split("/")[-1]
+                            if (base_entry.lower() == clean_name.lower() or 
+                                base_entry.lower().startswith(name_without_ext)):
+                                full_p = r_file if r_file.startswith('/') else f"{scan_dir}/{r_file}"
+                                if full_p not in candidate_paths:
+                                    candidate_paths.insert(0, full_p)
+                    except Exception:
+                        pass
+
+                for c_path in candidate_paths:
+                    buf = io.BytesIO()
+                    try:
+                        ftp.retrbinary(f"RETR {c_path}", buf.write)
+                        val = buf.getvalue()
+                        if val and len(val) > 10:
+                            ftp.quit()
+                            return val
+                    except Exception:
+                        pass
+                ftp.quit()
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"FTP download attempt error: {e}")
+
+    # 2. Try HTTP endpoints on port 8898 (orcaServer)
+    encoded_name = urllib.parse.quote(clean_name)
+    endpoints = [
+        f"http://{host}:8898/downloadGcode?filename={encoded_name}&serialNo={serial}&checkCode={check_code}",
+        f"http://{host}:8898/download?filename={encoded_name}",
+        f"http://{host}:8898/getFile?filename={encoded_name}",
+        f"http://{host}:8898/gcode/{encoded_name}",
+        f"http://{host}:8898/{encoded_name}"
+    ]
+    for url in endpoints:
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "serialNumber": serial,
+                    "serialNo": serial,
+                    "checkCode": check_code,
+                    "User-Agent": "Mozilla/5.0 FlashForge-Panel/1.0"
+                }
+            )
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = resp.read()
+                if data and len(data) > 50 and not data.startswith(b"<!DOCTYPE") and not data.startswith(b"{\"code\":-"):
+                    return data
+        except Exception:
+            pass
+
+    return None
+
+
+@app.get("/api/gcode/current")
+async def api_gcode_current():
+    """Returns the cached G-code file content for the currently printing file, or fetches from printer."""
+    async with lock:
+        current_file = last_status.get("current_file", "")
+        
+    # If not present in last_status, perform a live M119 check directly
+    if not current_file or current_file in ["-", "Boşta", "UNKNOWN"]:
+        try:
+            raw_m119 = await send_command(b"~M119\r\n")
+            m119_text = raw_m119.decode("utf-8", errors="ignore") if isinstance(raw_m119, bytes) else str(raw_m119)
+            p119 = parse_m119(m119_text)
+            if p119.get("current_file"):
+                current_file = p119["current_file"]
+                async with lock:
+                    last_status["current_file"] = current_file
+        except Exception:
+            pass
+
+    clean_name = current_file.replace("\\", "/").split("/")[-1].strip()
+    if not clean_name or clean_name in ["-", "Boşta", "UNKNOWN"]:
+        return JSONResponse({"ok": False, "error": "Şu an yazıcıda aktif bir baskı dosyası yok."}, status_code=404)
+        
+    cached_path = find_cached_gcode(clean_name)
+    
+    # If not in cache, try downloading directly from printer
+    if not cached_path:
+        loop = asyncio.get_event_loop()
+        downloaded_bytes = await loop.run_in_executor(
+            None, _download_from_printer_sync, PRINTER_HOST, clean_name, PRINTER_SERIAL, PRINTER_CHECK_CODE
+        )
+        if downloaded_bytes:
+            save_to_gcode_cache(clean_name, downloaded_bytes)
+            cached_path = find_cached_gcode(clean_name)
+
+    if not cached_path:
+        return JSONResponse({
+            "ok": False, 
+            "error": f"'{clean_name}' dosyası yazıcıdan veya sunucu önbelleğinden otomatik çekilemedi.",
+            "current_file": clean_name,
+            "prompt_upload": True
+        }, status_code=404)
+        
+    # Ensure that if cached_path is a container (.3mf or .gx), we extract and serve the pure .gcode
+    base_stem = os.path.splitext(cached_path)[0]
+    gcode_equiv = base_stem + ".gcode"
+    if os.path.isfile(gcode_equiv) and os.path.getsize(gcode_equiv) > 0:
+        cached_path = gcode_equiv
+    elif cached_path.lower().endswith(".3mf") or cached_path.lower().endswith(".gx"):
+        try:
+            with open(cached_path, "rb") as f:
+                data = f.read()
+            extracted = save_to_gcode_cache(os.path.basename(cached_path), data)
+            if extracted and os.path.isfile(os.path.join(GCODE_CACHE_DIR, extracted)):
+                cached_path = os.path.join(GCODE_CACHE_DIR, extracted)
+        except Exception as e:
+            print(f"Error auto-extracting gcode on serve: {e}")
+                
+    return FileResponse(
+        cached_path, 
+        media_type="text/plain; charset=utf-8", 
+        filename=os.path.basename(cached_path),
+        headers={"X-Gcode-Filename": os.path.basename(cached_path)}
+    )
+
+
+@app.get("/api/gcode/file/{filename}")
+async def api_gcode_file(filename: str):
+    """Returns a specific cached G-code file, auto-extracting pure .gcode if given a container."""
+    cached_path = find_cached_gcode(filename)
+    if not cached_path:
+        return JSONResponse({"ok": False, "error": "Dosya bulunamadı."}, status_code=404)
+        
+    base_stem = os.path.splitext(cached_path)[0]
+    gcode_equiv = base_stem + ".gcode"
+    if os.path.isfile(gcode_equiv) and os.path.getsize(gcode_equiv) > 0:
+        cached_path = gcode_equiv
+    elif cached_path.lower().endswith(".3mf") or cached_path.lower().endswith(".gx"):
+        try:
+            with open(cached_path, "rb") as f:
+                data = f.read()
+            extracted = save_to_gcode_cache(os.path.basename(cached_path), data)
+            if extracted and os.path.isfile(os.path.join(GCODE_CACHE_DIR, extracted)):
+                cached_path = os.path.join(GCODE_CACHE_DIR, extracted)
+        except Exception:
+            pass
+
+    return FileResponse(
+        cached_path, 
+        media_type="text/plain; charset=utf-8", 
+        filename=os.path.basename(cached_path),
+        headers={"X-Gcode-Filename": os.path.basename(cached_path)}
+    )
+
+
+@app.get("/api/gcode/list")
+async def api_gcode_list():
+    """Lists cached G-code files."""
+    files = []
+    try:
+        for f in os.listdir(GCODE_CACHE_DIR):
+            p = os.path.join(GCODE_CACHE_DIR, f)
+            if os.path.isfile(p) and (f.lower().endswith(".gcode") or f.lower().endswith(".3mf")):
+                stat = os.stat(p)
+                files.append({
+                    "name": f,
+                    "size": stat.st_size,
+                    "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                })
+        files.sort(key=lambda x: x["modified"], reverse=True)
+    except Exception as e:
+        print(f"Error listing gcode cache: {e}")
+    return {"ok": True, "files": files}
+
+
+@app.post("/api/gcode/cache")
+async def api_gcode_cache(request: Request, filename: str):
+    """Saves a G-code or 3MF file to local cache for 3D viewing without printing."""
+    try:
+        body = await request.body()
+        if not body:
+            return JSONResponse({"ok": False, "error": "Boş dosya."}, status_code=400)
+        saved_name = save_to_gcode_cache(filename, body)
+        return {"ok": True, "filename": saved_name}
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
 class SettingsModel(BaseModel):
@@ -1030,6 +2196,469 @@ async def api_camera_snapshot():
             headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
         )
     return JSONResponse({"ok": False, "error": "Kamera görüntüsü alınamadı"}, status_code=502)
+
+
+# ---------------------------------------------------------
+# TIME-LAPSE RECORDING & MANAGEMENT ENGINE
+# ---------------------------------------------------------
+
+TIMELAPSE_DIR = os.path.join(BASE_DIR, "timelapse_recordings")
+os.makedirs(TIMELAPSE_DIR, exist_ok=True)
+
+
+class TimeLapseManager:
+    """Automated Time-Lapse frame capture, compilation, and gallery management engine."""
+    def __init__(self, base_dir: str):
+        self.base_dir = base_dir
+        os.makedirs(self.base_dir, exist_ok=True)
+        self.active_session = None
+        self.lock = threading.Lock()
+        self.last_captured_layer = -1
+        self.last_captured_time = 0
+        self.recording_enabled = True
+        self._recover_stale_sessions()
+
+    def _recover_stale_sessions(self):
+        """Finalize any sessions that were left in 'recording' state if server crashed/restarted."""
+        try:
+            for item in os.listdir(self.base_dir):
+                item_path = os.path.join(self.base_dir, item)
+                if os.path.isdir(item_path):
+                    meta_path = os.path.join(item_path, "metadata.json")
+                    if os.path.exists(meta_path):
+                        try:
+                            with open(meta_path, "r", encoding="utf-8") as f:
+                                meta = json.load(f)
+                            if meta.get("status") == "recording":
+                                frames_dir = os.path.join(item_path, "frames")
+                                if os.path.exists(frames_dir) and len(os.listdir(frames_dir)) >= 2:
+                                    print(f"TimeLapse: Recovering unfinalized session {item}...")
+                                    threading.Thread(target=self._compile_worker, args=(meta,), daemon=True).start()
+                                else:
+                                    meta["status"] = "cancelled"
+                                    self._save_metadata(meta)
+                        except Exception:
+                            pass
+        except Exception as e:
+            print(f"Error recovering stale timelapse sessions: {e}")
+
+    def get_recordings(self) -> list:
+        recordings = []
+        try:
+            for item in os.listdir(self.base_dir):
+                item_path = os.path.join(self.base_dir, item)
+                if os.path.isdir(item_path):
+                    meta_file = os.path.join(item_path, "metadata.json")
+                    if os.path.exists(meta_file):
+                        try:
+                            with open(meta_file, "r", encoding="utf-8") as mf:
+                                meta = json.load(mf)
+                            v_file = meta.get("video_file", "timelapse.webp")
+                            v_path = os.path.join(item_path, v_file)
+                            if os.path.exists(v_path):
+                                meta["file_size"] = os.path.getsize(v_path)
+                            meta["has_video"] = os.path.exists(v_path) and os.path.getsize(v_path) > 100
+                            recordings.append(meta)
+                        except Exception:
+                            pass
+            recordings.sort(key=lambda x: x.get("start_time", ""), reverse=True)
+        except Exception as e:
+            print(f"Error listing timelapses: {e}")
+        return recordings
+
+    def get_active_session_info(self) -> dict:
+        with self.lock:
+            if self.active_session:
+                return {
+                    "id": self.active_session.get("id"),
+                    "filename": self.active_session.get("filename"),
+                    "start_time": self.active_session.get("start_time"),
+                    "captured_frames": self.active_session.get("captured_frames", 0),
+                    "current_layer": self.last_captured_layer,
+                    "total_layers": self.active_session.get("total_layers", 0),
+                    "status": "recording"
+                }
+            return None
+
+    def start_session(self, filename: str, total_layers: int = 0):
+        with self.lock:
+            clean_name = os.path.splitext(os.path.basename(filename.replace("\\", "/")))[0]
+            clean_name = re.sub(r'[^\w\-_\.]', '_', clean_name).strip("._") or "print"
+            now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            session_id = f"{now_str}_{clean_name}"
+            session_path = os.path.join(self.base_dir, session_id)
+            frames_path = os.path.join(session_path, "frames")
+            os.makedirs(frames_path, exist_ok=True)
+
+            self.active_session = {
+                "id": session_id,
+                "filename": filename,
+                "start_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "end_time": None,
+                "total_layers": total_layers,
+                "captured_frames": 0,
+                "status": "recording",
+                "duration_seconds": 0,
+                "thumbnail": "thumbnail.jpg",
+                "video_file": "timelapse.webp",
+                "file_size": 0,
+                "session_dir": session_path,
+                "frames_dir": frames_path
+            }
+            self.last_captured_layer = -1
+            self.last_captured_time = time.time()
+            self._save_metadata(self.active_session)
+            print(f"TimeLapse: Started new session '{session_id}' for file '{filename}'.")
+
+    def capture_frame(self, frame_bytes: bytes, layer_num: int = 0):
+        if not frame_bytes or not self.active_session:
+            return
+        with self.lock:
+            frames_dir = self.active_session["frames_dir"]
+            frame_idx = self.active_session["captured_frames"] + 1
+            frame_filename = f"frame_{frame_idx:06d}.jpg"
+            frame_path = os.path.join(frames_dir, frame_filename)
+            try:
+                with open(frame_path, "wb") as f:
+                    f.write(frame_bytes)
+
+                thumb_path = os.path.join(self.active_session["session_dir"], "thumbnail.jpg")
+                if frame_idx == 1 or frame_idx % 10 == 0:
+                    with open(thumb_path, "wb") as tf:
+                        tf.write(frame_bytes)
+
+                self.active_session["captured_frames"] = frame_idx
+                if layer_num > self.active_session.get("total_layers", 0):
+                    self.active_session["total_layers"] = layer_num
+                self.last_captured_layer = layer_num
+                self.last_captured_time = time.time()
+                self._save_metadata(self.active_session)
+            except Exception as e:
+                print(f"TimeLapse: Error saving frame {frame_idx}: {e}")
+
+    def finalize_session(self):
+        with self.lock:
+            session = self.active_session
+            self.active_session = None
+
+        if not session:
+            return
+
+        session["end_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            t_start = datetime.strptime(session["start_time"], "%Y-%m-%d %H:%M:%S")
+            session["duration_seconds"] = int((datetime.now() - t_start).total_seconds())
+        except Exception:
+            session["duration_seconds"] = 0
+
+        threading.Thread(target=self._compile_worker, args=(session,), daemon=True).start()
+
+    def _compile_worker(self, session: dict):
+        session_dir = session["session_dir"]
+        frames_dir = session["frames_dir"]
+        if not os.path.exists(frames_dir):
+            session["status"] = "skipped"
+            self._save_metadata(session)
+            return
+
+        frame_files = sorted([f for f in os.listdir(frames_dir) if f.lower().endswith(".jpg")])
+        if len(frame_files) < 2:
+            print(f"TimeLapse: Session '{session['id']}' has fewer than 2 frames ({len(frame_files)}), skipping compilation.")
+            session["status"] = "skipped"
+            self._save_metadata(session)
+            return
+
+        print(f"TimeLapse: Compiling {len(frame_files)} frames for session '{session['id']}'...")
+        out_webp = os.path.join(session_dir, "timelapse.webp")
+        out_mp4 = os.path.join(session_dir, "timelapse.mp4")
+
+        # 1. Try ffmpeg if available
+        ffmpeg_bin = shutil.which("ffmpeg")
+        compiled_mp4 = False
+        if ffmpeg_bin:
+            try:
+                cmd = [
+                    ffmpeg_bin, "-y",
+                    "-framerate", "10",
+                    "-i", os.path.join(frames_dir, "frame_%06d.jpg"),
+                    "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p",
+                    "-preset", "fast",
+                    "-crf", "23",
+                    out_mp4
+                ]
+                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+                if os.path.exists(out_mp4) and os.path.getsize(out_mp4) > 100:
+                    session["video_file"] = "timelapse.mp4"
+                    session["file_size"] = os.path.getsize(out_mp4)
+                    session["status"] = "completed"
+                    compiled_mp4 = True
+                    print(f"TimeLapse: ffmpeg MP4 compiled successfully! Size: {session['file_size']} bytes.")
+            except Exception as fe:
+                print(f"TimeLapse: ffmpeg compilation warning: {fe}")
+
+        # 2. Always generate animated WebP for 100% browser native preview
+        try:
+            images = []
+            for f in frame_files:
+                f_path = os.path.join(frames_dir, f)
+                try:
+                    img = Image.open(f_path)
+                    # Optimize dimension (max width 1280) for lightweight playback
+                    if img.width > 1280:
+                        ratio = 1280.0 / img.width
+                        img = img.resize((1280, int(img.height * ratio)), Image.LANCZOS)
+                    images.append(img.convert("RGB"))
+                except Exception as ie:
+                    print(f"TimeLapse: Error reading frame {f}: {ie}")
+
+            if images:
+                images[0].save(
+                    out_webp,
+                    format="WEBP",
+                    save_all=True,
+                    append_images=images[1:],
+                    duration=100,  # 10 fps
+                    loop=0,
+                    quality=80
+                )
+                if not compiled_mp4:
+                    session["video_file"] = "timelapse.webp"
+                    session["file_size"] = os.path.getsize(out_webp)
+                    session["status"] = "completed"
+                print(f"TimeLapse: WebP animation compiled successfully! Size: {os.path.getsize(out_webp)} bytes.")
+        except Exception as we:
+            print(f"TimeLapse: WebP compilation error: {we}")
+            if not compiled_mp4:
+                session["status"] = "error"
+
+        self._save_metadata(session)
+
+    def _save_metadata(self, session: dict):
+        try:
+            meta_path = os.path.join(session["session_dir"], "metadata.json")
+            with open(meta_path, "w", encoding="utf-8") as f:
+                json.dump(session, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"Error saving timelapse metadata: {e}")
+
+    def delete_session(self, session_id: str) -> bool:
+        session_path = os.path.join(self.base_dir, session_id)
+        if os.path.isdir(session_path):
+            shutil.rmtree(session_path, ignore_errors=True)
+            return True
+        return False
+
+    def _fetch_direct_snapshot(self) -> bytes:
+        """Fallback direct snapshot fetch from printer."""
+        try:
+            url = f"http://{PRINTER_HOST}:8080/?action=snapshot"
+            req = urllib.request.Request(url, headers={"User-Agent": "FlashForge-TimeLapse/1.0"})
+            with urllib.request.urlopen(req, timeout=2.0) as resp:
+                data = resp.read()
+                if data and len(data) > 1000:
+                    return data
+        except Exception:
+            pass
+        return None
+
+    def process_status(self, status: dict):
+        """Called upon every status poll update to drive automated frame capture."""
+        if not self.recording_enabled:
+            return
+
+        m_status = (status.get("machine_status") or "").strip().upper()
+        is_active_printing = m_status in ["BUILDING", "BUILDING_FROM_SD", "PRINTING"]
+        is_completed = status.get("is_completed", False) or (m_status in ["BUILDING_COMPLETED", "COMPLETED", "FINISHED"])
+        current_file = (status.get("current_file") or "").strip()
+
+        layer_val = status.get("layer", "0/0")
+        cur_layer, total_layer = (0, 0)
+        if "/" in layer_val:
+            try:
+                parts = layer_val.split("/")
+                cur_layer = int(parts[0].strip())
+                total_layer = int(parts[1].strip())
+            except Exception:
+                pass
+
+        # 1. Start new session if active printing has begun
+        if is_active_printing and current_file and current_file not in ["-", "Boşta", "UNKNOWN"]:
+            if not self.active_session:
+                self.start_session(current_file, total_layers=total_layer)
+            elif self.active_session.get("filename") != current_file:
+                # File changed on printer
+                self.finalize_session()
+                self.start_session(current_file, total_layers=total_layer)
+
+            # 2. Check if a frame should be captured
+            if self.active_session:
+                now = time.time()
+                should_capture = False
+                if cur_layer > 0 and cur_layer > self.last_captured_layer:
+                    should_capture = True
+                elif (now - self.last_captured_time) >= 45:
+                    # Time-based fallback for unlayered/vase prints
+                    should_capture = True
+
+                if should_capture:
+                    frame = camera_broadcaster.latest_frame or self._fetch_direct_snapshot()
+                    if frame:
+                        self.capture_frame(frame, layer_num=cur_layer)
+
+        # 3. Finalize session if print has finished or printer transitioned to completed/idle
+        elif is_completed or (self.active_session and not is_active_printing and m_status in ["READY", "IDLE", "BUILDING_COMPLETED"]):
+            if self.active_session:
+                print("TimeLapse: Print finished or completed. Finalizing timelapse recording...")
+                self.finalize_session()
+
+
+timelapse_manager = TimeLapseManager(TIMELAPSE_DIR)
+
+
+@app.get("/api/timelapse/list")
+async def api_timelapse_list():
+    """Returns list of recorded timelapses and active recording session."""
+    active = timelapse_manager.get_active_session_info()
+    recordings = timelapse_manager.get_recordings()
+    return {
+        "ok": True,
+        "active_session": active,
+        "recordings": recordings
+    }
+
+
+@app.get("/api/timelapse/video/{session_id}")
+async def api_timelapse_video(session_id: str, download: bool = False):
+    """Streams or downloads the compiled timelapse video (WebP or MP4)."""
+    clean_id = os.path.basename(session_id)
+    session_dir = os.path.join(TIMELAPSE_DIR, clean_id)
+    if not os.path.isdir(session_dir):
+        return JSONResponse({"ok": False, "error": "Kayıt bulunamadı."}, status_code=404)
+
+    # Prefer MP4 if exists, else WebP
+    mp4_file = os.path.join(session_dir, "timelapse.mp4")
+    webp_file = os.path.join(session_dir, "timelapse.webp")
+    
+    target_file = None
+    media_type = "image/webp"
+    
+    if os.path.exists(mp4_file) and os.path.getsize(mp4_file) > 100:
+        target_file = mp4_file
+        media_type = "video/mp4"
+    elif os.path.exists(webp_file) and os.path.getsize(webp_file) > 100:
+        target_file = webp_file
+        media_type = "image/webp"
+
+    if not target_file:
+        return JSONResponse({"ok": False, "error": "Video dosyası henüz oluşturulmadı veya işlemde."}, status_code=404)
+
+    ext = os.path.splitext(target_file)[1]
+    filename = f"{clean_id}{ext}"
+    disposition = f'attachment; filename="{filename}"' if download else f'inline; filename="{filename}"'
+    
+    return FileResponse(
+        target_file,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": disposition,
+            "Cache-Control": "public, max-age=86400"
+        }
+    )
+
+
+@app.get("/api/timelapse/thumbnail/{session_id}")
+async def api_timelapse_thumbnail(session_id: str):
+    """Returns the thumbnail poster JPEG for the session."""
+    clean_id = os.path.basename(session_id)
+    session_dir = os.path.join(TIMELAPSE_DIR, clean_id)
+    thumb_path = os.path.join(session_dir, "thumbnail.jpg")
+    
+    if not os.path.exists(thumb_path):
+        frames_dir = os.path.join(session_dir, "frames")
+        if os.path.exists(frames_dir):
+            frames = sorted([f for f in os.listdir(frames_dir) if f.lower().endswith(".jpg")])
+            if frames:
+                thumb_path = os.path.join(frames_dir, frames[0])
+
+    if os.path.exists(thumb_path):
+        return FileResponse(
+            thumb_path,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=86400"}
+        )
+    return JSONResponse({"ok": False, "error": "Thumbnail bulunamadı."}, status_code=404)
+
+
+@app.get("/api/timelapse/frames/{session_id}")
+async def api_timelapse_frames(session_id: str):
+    """Returns list of frame URLs for interactive layer scrubbing."""
+    clean_id = os.path.basename(session_id)
+    session_dir = os.path.join(TIMELAPSE_DIR, clean_id)
+    frames_dir = os.path.join(session_dir, "frames")
+    
+    if not os.path.exists(frames_dir):
+        return {"ok": True, "session_id": clean_id, "frames": [], "count": 0}
+
+    frame_files = sorted([f for f in os.listdir(frames_dir) if f.lower().endswith(".jpg")])
+    frame_urls = [f"/api/timelapse/frame/{clean_id}/{idx+1}" for idx in range(len(frame_files))]
+    
+    return {
+        "ok": True,
+        "session_id": clean_id,
+        "count": len(frame_urls),
+        "frames": frame_urls,
+        "frame_urls": frame_urls
+    }
+
+
+@app.get("/api/timelapse/frame/{session_id}/{frame_num}")
+async def api_timelapse_frame(session_id: str, frame_num: int):
+    """Returns a specific layer frame JPEG."""
+    clean_id = os.path.basename(session_id)
+    session_dir = os.path.join(TIMELAPSE_DIR, clean_id)
+    frames_dir = os.path.join(session_dir, "frames")
+    
+    if not os.path.exists(frames_dir):
+        return JSONResponse({"ok": False, "error": "Kareler bulunamadı."}, status_code=404)
+
+    frame_files = sorted([f for f in os.listdir(frames_dir) if f.lower().endswith(".jpg")])
+    if 1 <= frame_num <= len(frame_files):
+        target_frame = os.path.join(frames_dir, frame_files[frame_num - 1])
+        return FileResponse(
+            target_frame,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=86400"}
+        )
+    return JSONResponse({"ok": False, "error": "Kare bulunamadı."}, status_code=404)
+
+
+@app.delete("/api/timelapse/{session_id}")
+async def api_timelapse_delete(session_id: str):
+    """Deletes a recorded timelapse session."""
+    clean_id = os.path.basename(session_id)
+    success = timelapse_manager.delete_session(clean_id)
+    if success:
+        return {"ok": True, "message": "Time-Lapse kaydı başarıyla silindi."}
+    return JSONResponse({"ok": False, "error": "Kayıt silinemedi veya bulunamadı."}, status_code=404)
+
+
+@app.post("/api/timelapse/compile/{session_id}")
+async def api_timelapse_compile(session_id: str):
+    """Forces re-compilation of a timelapse session."""
+    clean_id = os.path.basename(session_id)
+    session_dir = os.path.join(TIMELAPSE_DIR, clean_id)
+    meta_path = os.path.join(session_dir, "metadata.json")
+    if not os.path.exists(meta_path):
+        return JSONResponse({"ok": False, "error": "Kayıt bulunamadı."}, status_code=404)
+
+    with open(meta_path, "r", encoding="utf-8") as f:
+        meta = json.load(f)
+
+    meta["session_dir"] = session_dir
+    meta["frames_dir"] = os.path.join(session_dir, "frames")
+    threading.Thread(target=timelapse_manager._compile_worker, args=(meta,), daemon=True).start()
+    return {"ok": True, "message": "Video derleme işlemi arka planda başlatıldı."}
 
 
 
