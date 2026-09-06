@@ -161,6 +161,7 @@ last_status = {
     "cumulative_filament": 0.0,
     "remaining_disk_space": 0.0,
     "estimated_time": 0.0,
+    "print_duration": 0,
     "nozzle_model": "",
     "tvoc": 0,
     "z_axis_compensation": 0.0,
@@ -510,9 +511,12 @@ async def refresh_once():
     is_completed_status = machine_status_upper in [
         "COMPLETED", "FINISHED", "BUILD_COMPLETED", "PRINT_COMPLETE", "PRINT_COMPLETED", "BUILDING_COMPLETED", "FINISH"
     ]
-    detail_status = str(detail_dict.get("printStatus", "")).lower()
+    detail_status = str(detail_dict.get("status", "") or detail_dict.get("printStatus", "")).strip().lower()
     detail_clean_plate = detail_dict.get("cleanPlate")
-    is_active_printing = machine_status_upper in ["BUILDING", "BUILDING_FROM_SD", "PRINTING"]
+    is_active_printing = (
+        machine_status_upper in ["BUILDING", "BUILDING_FROM_SD", "PRINTING"] or
+        detail_status in ["building", "printing"]
+    )
     
     if is_completed_status:
         is_completed_state = True
@@ -533,6 +537,7 @@ async def refresh_once():
     status = {
         "machine_status": parsed_m119.get("machine_status", "UNKNOWN"),
         "move_mode": parsed_m119.get("move_mode", "UNKNOWN"),
+        "is_printing": is_active_printing,
         "current_file": active_current_file,
         "progress": parsed_m27.get("progress", 0),
         "layer": parsed_m27.get("layer", "0/0"),
@@ -563,6 +568,7 @@ async def refresh_once():
         "cumulative_filament": detail_dict.get("cumulativeFilament", 0.0),
         "remaining_disk_space": detail_dict.get("remainingDiskSpace", 0.0),
         "estimated_time": detail_dict.get("estimatedTime", 0.0),
+        "print_duration": detail_dict.get("printDuration", 0) or 0,
         "nozzle_model": detail_dict.get("nozzleModel", ""),
         "tvoc": detail_dict.get("tvoc", 0),
         "z_axis_compensation": detail_dict.get("zAxisCompensation", 0.0),
@@ -771,7 +777,7 @@ async def api_command(command: dict):
 
 def _clear_platform_sync(host, port, serial, check_code):
     """Sends setClearPlatform commands via HTTP port 8898 and resets TCP control session (~M26) to dismiss 'Platformu Temizleyin!'."""
-    http_res = None
+    http_res = []
     if serial and check_code:
         import urllib.request
         url = f"http://{host}:8898/control"
@@ -783,6 +789,8 @@ def _clear_platform_sync(host, port, serial, check_code):
         }
         cmds = [
             {"cmd": "stateCtrl_cmd", "args": {"action": "setClearPlatform"}},
+            {"cmd": "stateCtrl_cmd", "args": {"action": "cleanPlate"}},
+            {"cmd": "stateCtrl_cmd", "args": {"action": "clearError"}},
             {"cmd": "plateDetectControl_cmd", "args": {"action": "setClearPlatform"}}
         ]
         for cmd_payload in cmds:
@@ -799,9 +807,9 @@ def _clear_platform_sync(host, port, serial, check_code):
                     method="POST"
                 )
                 with urllib.request.urlopen(req, timeout=3) as resp:
-                    http_res = resp.read().decode('utf-8', errors='ignore')
+                    http_res.append(resp.read().decode('utf-8', errors='ignore'))
             except Exception as he:
-                http_res = f"HTTP ERR: {he}"
+                http_res.append(f"HTTP ERR ({cmd_payload['cmd']}): {he}")
 
     # Also send TCP M26 to ensure print job state is cleared in Marlin/Klipper layer
     tcp_res = ""
@@ -820,7 +828,7 @@ def _clear_platform_sync(host, port, serial, check_code):
     return {
         "ok": True,
         "message": "Platform temizleme onayı yazıcıya iletildi. Ekran uyarısı kapatıldı ve yazıcı yeni baskı için hazır.",
-        "http_response": http_res,
+        "http_response": "; ".join(http_res) if isinstance(http_res, list) else str(http_res),
         "tcp": tcp_res
     }
 
@@ -1101,7 +1109,7 @@ def _start_print_job_sync(
                 if isinstance(m, dict):
                     mappings_clean.append({
                         "toolId": int(m.get("toolId", 0)),
-                        "slotId": int(m.get("slotId", 0)),
+                        "slotId": int(m.get("slotId", 1)),
                         "materialName": str(m.get("materialName", "PLA")),
                         "toolMaterialColor": str(m.get("toolMaterialColor", "#161616")),
                         "slotMaterialColor": str(m.get("slotMaterialColor", m.get("toolMaterialColor", "#161616")))
@@ -1117,7 +1125,7 @@ def _start_print_job_sync(
                         color = str(td.get("materialColor", "#161616"))
                         mappings_clean.append({
                             "toolId": int(td.get("toolId", 0)),
-                            "slotId": int(td.get("slotId", 0)),
+                            "slotId": int(td.get("slotId", 1)),
                             "materialName": str(td.get("materialName", "PLA")),
                             "toolMaterialColor": color,
                             "slotMaterialColor": color
@@ -1130,7 +1138,7 @@ def _start_print_job_sync(
     if use_matl_station and not mappings_clean:
         mappings_clean.append({
             "toolId": 0,
-            "slotId": 0,
+            "slotId": 1,
             "materialName": "PLA",
             "toolMaterialColor": "#161616",
             "slotMaterialColor": "#161616"
@@ -1209,7 +1217,7 @@ def _upload_gcode_sync(
             t_id = t.get("toolId", 0)
             mappings_list.append({
                 "toolId": t_id,
-                "slotId": t_id if t_id < 4 else 0,
+                "slotId": (t_id + 1) if t_id < 4 else 1,
                 "materialName": t.get("materialName", "PLA"),
                 "toolMaterialColor": t.get("toolMaterialColor", "#161616"),
                 "slotMaterialColor": t.get("toolMaterialColor", "#161616")
@@ -1223,7 +1231,7 @@ def _upload_gcode_sync(
         "serialNo": serial,
         "checkCode": check_code,
         "fileSize": str(len(file_bytes)),
-        "printNow": "1" if print_now else "0",
+        "printNow": "0",  # Sadece dosya yukle; baski baslatma ardindan retry mekanizmali /printGcode ile yapilir
         "levelingBeforePrint": "1" if leveling_before_print else "0",
         "flowCalibration": "1" if flow_calibration else "0",
         "firstLayerInspection": "1" if first_layer_inspection else "0",
@@ -1347,44 +1355,65 @@ async def api_upload(
 
             clean_name = os.path.basename(filename.replace("\\", "/"))
             if print_now:
-                # Brief wait for printer file write to sync to disk
-                await asyncio.sleep(0.8)
+                # Yazıcı dahili depolamasına (eMMC) dosya yazımının ve önizleme çıkarımının tamamlanması için bekle
+                await asyncio.sleep(1.5)
                 start_success = False
+                start_err_msg = ""
                 start_res = None
-                try:
-                    start_res = await loop.run_in_executor(
-                        None,
-                        _start_print_job_sync,
-                        PRINTER_HOST,
-                        PRINTER_SERIAL,
-                        PRINTER_CHECK_CODE,
-                        clean_name,
-                        leveling_before_print,
-                        time_lapse_video,
-                        use_matl_station,
-                        flow_calibration,
-                        first_layer_inspection,
-                        material_mappings
-                    )
-                    print(f"Print start response from /printGcode: {start_res}")
-                    start_code = start_res.get("code") if isinstance(start_res, dict) else -1
-                    if start_code in (0, 200) or str(start_res.get("message", "")).lower() == "success":
-                        start_success = True
-                    else:
-                        start_err_msg = start_res.get("message", f"Yazıcı hata kodu: {start_code}")
-                except Exception as start_e:
-                    print(f"Error calling /printGcode: {start_e}")
-                    start_err_msg = str(start_e)
 
-                # Fallback to TCP port 8899 M23/M24 ONLY if HTTP /printGcode was completely unreachable
-                if not start_success and start_res is None:
-                    print(f"/printGcode unreachable ({start_err_msg}), attempting fallback TCP ~M23 / ~M24...")
+                # HTTP /printGcode için retry döngüsü (FlashForge eMMC yazım süresi ve busy durumunu karşılar)
+                max_retries = 6
+                for attempt in range(max_retries):
+                    try:
+                        start_res = await loop.run_in_executor(
+                            None,
+                            _start_print_job_sync,
+                            PRINTER_HOST,
+                            PRINTER_SERIAL,
+                            PRINTER_CHECK_CODE,
+                            clean_name,
+                            leveling_before_print,
+                            time_lapse_video,
+                            use_matl_station,
+                            flow_calibration,
+                            first_layer_inspection,
+                            material_mappings
+                        )
+                        print(f"Print start attempt {attempt+1}/{max_retries} response from /printGcode: {start_res}")
+                        start_code = start_res.get("code") if isinstance(start_res, dict) else -1
+                        msg = str(start_res.get("message", ""))
+                        if start_code in (0, 200) or msg.lower() == "success":
+                            start_success = True
+                            break
+
+                        start_err_msg = msg or f"Yazıcı hata kodu: {start_code}"
+                        # Yazıcı meşgulse (dosya diske işleniyor veya önceki durum bekleniyor)
+                        if any(k in msg.lower() for k in ["busy", "wait", "meşgul"]):
+                            if attempt == 1:
+                                # 2. denemede yazıcı halen busy ise ekran kilidini proaktif olarak temizle
+                                print("Upload print start: Yazıcı busy döndü, proaktif clear_platform çalıştırılıyor...")
+                                await loop.run_in_executor(
+                                    None, _clear_platform_sync, PRINTER_HOST, PRINTER_PORT, PRINTER_SERIAL, PRINTER_CHECK_CODE
+                                )
+                            await asyncio.sleep(2.0)
+                            continue
+                        else:
+                            await asyncio.sleep(1.5)
+                    except Exception as start_e:
+                        print(f"Error calling /printGcode (attempt {attempt+1}): {start_e}")
+                        start_err_msg = str(start_e)
+                        await asyncio.sleep(1.5)
+
+                # HTTP /printGcode başarısız olduysa TCP port 8899 M23/M24 ile doğrudan başlatmayı dene
+                if not start_success:
+                    print(f"/printGcode başarısız ({start_err_msg}), TCP ~M23 / ~M24 fallback deneniyor...")
                     try:
                         m23_cmd = f"~M23 0:/user/{clean_name}\r\n".encode("utf-8")
                         tcp_res = await send_command(m23_cmd)
                         print(f"TCP M23 fallback response: {tcp_res}")
-                        if b"File selected" in tcp_res:
+                        if b"File selected" in tcp_res or b"File opened" in tcp_res:
                             m24_res = await send_command(b"~M24\r\n")
+                            print(f"TCP M24 fallback response: {m24_res}")
                             if b"ok" in m24_res or b"CMD" in m24_res:
                                 start_success = True
                     except Exception as tcp_e:
@@ -1396,7 +1425,9 @@ async def api_upload(
                 else:
                     return JSONResponse({
                         "ok": False,
-                        "error": f"Dosya yazıcıya yüklendi fakat baskı başlatılamadı: {start_err_msg}"
+                        "error": f"Dosya yazıcıya yüklendi fakat baskı başlatılamadı: {start_err_msg}",
+                        "filename": clean_name,
+                        "can_start_stored": True
                     }, status_code=500)
 
             asyncio.create_task(refresh_once())
@@ -1460,36 +1491,56 @@ async def api_print_start(params: StartPrintModel):
     start_success = False
     start_err_msg = ""
     start_res = None
-    try:
-        start_res = await loop.run_in_executor(
-            None,
-            _start_print_job_sync,
-            PRINTER_HOST,
-            PRINTER_SERIAL,
-            PRINTER_CHECK_CODE,
-            clean_name,
-            params.leveling_before_print,
-            params.time_lapse_video,
-            params.use_matl_station,
-            params.flow_calibration,
-            params.first_layer_inspection,
-            params.material_mappings
-        )
-        print(f"api_print_start response: {start_res}")
-        start_code = start_res.get("code") if isinstance(start_res, dict) else -1
-        if start_code in (0, 200) or str(start_res.get("message", "")).lower() == "success":
-            start_success = True
-        else:
-            start_err_msg = start_res.get("message", f"Yazıcı hata kodu: {start_code}")
-    except Exception as e:
-        start_err_msg = str(e)
-        
-    if not start_success and start_res is None:
+
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            start_res = await loop.run_in_executor(
+                None,
+                _start_print_job_sync,
+                PRINTER_HOST,
+                PRINTER_SERIAL,
+                PRINTER_CHECK_CODE,
+                clean_name,
+                params.leveling_before_print,
+                params.time_lapse_video,
+                params.use_matl_station,
+                params.flow_calibration,
+                params.first_layer_inspection,
+                params.material_mappings
+            )
+            print(f"api_print_start attempt {attempt+1}/{max_retries} response: {start_res}")
+            start_code = start_res.get("code") if isinstance(start_res, dict) else -1
+            msg = str(start_res.get("message", ""))
+            if start_code in (0, 200) or msg.lower() == "success":
+                start_success = True
+                break
+
+            start_err_msg = msg or f"Yazıcı hata kodu: {start_code}"
+            if any(k in msg.lower() for k in ["busy", "wait", "meşgul"]):
+                if attempt == 1:
+                    print("api_print_start: Yazıcı busy döndü, proaktif clear_platform çalıştırılıyor...")
+                    await loop.run_in_executor(
+                        None, _clear_platform_sync, PRINTER_HOST, PRINTER_PORT, PRINTER_SERIAL, PRINTER_CHECK_CODE
+                    )
+                await asyncio.sleep(2.0)
+                continue
+            else:
+                await asyncio.sleep(1.0)
+        except Exception as e:
+            start_err_msg = str(e)
+            await asyncio.sleep(1.0)
+
+    # HTTP /printGcode başarısız olduysa TCP port 8899 M23/M24 fallback dene
+    if not start_success:
+        print(f"api_print_start: /printGcode başlatamadı ({start_err_msg}), TCP ~M23 / ~M24 fallback deneniyor...")
         try:
             m23_cmd = f"~M23 0:/user/{clean_name}\r\n".encode("utf-8")
             tcp_res = await send_command(m23_cmd)
-            if b"File selected" in tcp_res:
+            print(f"TCP M23 fallback response: {tcp_res}")
+            if b"File selected" in tcp_res or b"File opened" in tcp_res:
                 m24_res = await send_command(b"~M24\r\n")
+                print(f"TCP M24 fallback response: {m24_res}")
                 if b"ok" in m24_res or b"CMD" in m24_res:
                     start_success = True
         except Exception as tcp_e:
@@ -2231,7 +2282,7 @@ class TimeLapseManager:
                                 meta = json.load(f)
                             if meta.get("status") == "recording":
                                 frames_dir = os.path.join(item_path, "frames")
-                                if os.path.exists(frames_dir) and len(os.listdir(frames_dir)) >= 2:
+                                if os.path.exists(frames_dir) and len(os.listdir(frames_dir)) >= 1:
                                     print(f"TimeLapse: Recovering unfinalized session {item}...")
                                     threading.Thread(target=self._compile_worker, args=(meta,), daemon=True).start()
                                 else:
@@ -2362,8 +2413,8 @@ class TimeLapseManager:
             return
 
         frame_files = sorted([f for f in os.listdir(frames_dir) if f.lower().endswith(".jpg")])
-        if len(frame_files) < 2:
-            print(f"TimeLapse: Session '{session['id']}' has fewer than 2 frames ({len(frame_files)}), skipping compilation.")
+        if len(frame_files) == 0:
+            print(f"TimeLapse: Session '{session['id']}' has 0 frames, skipping compilation.")
             session["status"] = "skipped"
             self._save_metadata(session)
             return
@@ -2468,9 +2519,20 @@ class TimeLapseManager:
             return
 
         m_status = (status.get("machine_status") or "").strip().upper()
-        is_active_printing = m_status in ["BUILDING", "BUILDING_FROM_SD", "PRINTING"]
-        is_completed = status.get("is_completed", False) or (m_status in ["BUILDING_COMPLETED", "COMPLETED", "FINISHED"])
-        current_file = (status.get("current_file") or "").strip()
+        detail_raw = status.get("detail_raw") or {}
+        detail_status = str(detail_raw.get("status", "") or detail_raw.get("printStatus", "")).strip().lower()
+
+        is_active_printing = (
+            status.get("is_printing", False) or
+            m_status in ["BUILDING", "BUILDING_FROM_SD", "PRINTING"] or
+            detail_status in ["building", "printing"]
+        )
+        is_completed = (
+            status.get("is_completed", False) or 
+            (m_status in ["BUILDING_COMPLETED", "COMPLETED", "FINISHED"]) or
+            detail_status in ["completed", "finish", "finished"]
+        )
+        current_file = (status.get("current_file") or detail_raw.get("printFileName") or detail_raw.get("fileName") or "").strip()
 
         layer_val = status.get("layer", "0/0")
         cur_layer, total_layer = (0, 0)
@@ -2479,6 +2541,13 @@ class TimeLapseManager:
                 parts = layer_val.split("/")
                 cur_layer = int(parts[0].strip())
                 total_layer = int(parts[1].strip())
+            except Exception:
+                pass
+
+        if cur_layer == 0 and detail_raw.get("printLayer"):
+            try:
+                cur_layer = int(detail_raw.get("printLayer"))
+                total_layer = int(detail_raw.get("targetPrintLayer") or total_layer)
             except Exception:
                 pass
 
@@ -2495,9 +2564,9 @@ class TimeLapseManager:
             if self.active_session:
                 now = time.time()
                 should_capture = False
-                if cur_layer > 0 and cur_layer > self.last_captured_layer:
+                if cur_layer >= 0 and cur_layer != self.last_captured_layer:
                     should_capture = True
-                elif (now - self.last_captured_time) >= 45:
+                elif (now - self.last_captured_time) >= 30:
                     # Time-based fallback for unlayered/vase prints
                     should_capture = True
 
@@ -2507,7 +2576,7 @@ class TimeLapseManager:
                         self.capture_frame(frame, layer_num=cur_layer)
 
         # 3. Finalize session if print has finished or printer transitioned to completed/idle
-        elif is_completed or (self.active_session and not is_active_printing and m_status in ["READY", "IDLE", "BUILDING_COMPLETED"]):
+        elif is_completed or (self.active_session and not is_active_printing and m_status in ["READY", "IDLE", "BUILDING_COMPLETED", "CANCEL_BUILD", "CANCEL"]):
             if self.active_session:
                 print("TimeLapse: Print finished or completed. Finalizing timelapse recording...")
                 self.finalize_session()

@@ -100,7 +100,8 @@ Web arayüzünün sağ üstündeki **⚙️ Ayarlar** penceresi ve **Uçbirim (G
 ---
 
 ### 6. 📊 Zengin Donanım & Sensör Telemetrisi (HTTP 8898 /detail API)
-* **Kabin & Hazne Sıcaklığı:** Anlık ve hedef sıcaklık takibi.
+* **⏱️ Canlı Geçen Süre ve Kalan Süre Sayacı:** Baskı başladığı andan itibaren net süreyi (`X sa Y dk Z sn`) hesaplayan dinamik geçen süre sayacı ve tahmini bitişe kalan süre telemetrisi eşzamanlı olarak gösterilir.
+* **Kabin & Hazne Sıcaklığı:** Anlık ve hedef nozul, yatak ve kabin sıcaklık takibi.
 * **TVOC Hava Kalitesi:** Hazne içi VOC gazı seviyesi (`ppb`).
 * **Fan Hızları:** Sol Fan, Sağ/Ana Soğutma Fanı ve Hazne Fanı devirleri (`%`).
 * **Kapı & LED Durumu:** Kapı açık/kapalı algılayıcısı ve kabin aydınlatma durumu.
@@ -108,7 +109,7 @@ Web arayüzünün sağ üstündeki **⚙️ Ayarlar** penceresi ve **Uçbirim (G
 
 ---
 
-### 7. ⚠️ Akıllı Duraklatma, Hata Teşhis & Uzaktan Platform Temizleme (Smart Pause & setClearPlatform)
+### 7. ⚠️ Akıllı Duraklatma, Hata Teşhis & Çok Katmanlı Platform Temizleme (Smart Pause & Clear Platform)
 Yazıcı baskı esnasında duraklatıldığında veya arıza moduna geçtiğinde (`MachineStatus: PAUSED / ERROR`):
 * **🔍 Çok Katmanlı Teşhis Algoritması:** Yazıcının neden durduğunu otomatik tespit eder (Kapak açık sensörü `doorStatus == open`, filament bitti/eksik `filamentLack`, M119 sensör bayrakları `F:1`/`J:1`, donanım hata kodları `errorCode` veya katman duraklatması).
 * **🚨 Yüksek Görünürlüklü Uyarı Paneli:** Sayfanın en üstünde turuncu/kırmızı parlayan teşhis bildirimi açılır ve doğrudan üzerinde **"▶ Devam Et"** ile **"⏹ İptal Et"** butonları sunar.
@@ -116,8 +117,8 @@ Yazıcı baskı esnasında duraklatıldığında veya arıza moduna geçtiğinde
 * **📱 Masaüstü Tarayıcı Bildirimleri:** Tarayıcı arka plandayken dahi masaüstü bildirimi (Desktop Notification) gönderir.
 * **💡 Parlayan "Devam Et" Butonu:** Duraklatma anında "Devam Et" butonu nabız gibi parlayarak kullanıcının aksiyon almasını kolaylaştırır.
 * **🧊 3D Önizleme Senkronizasyonu:** 3D G-Code panelindeki canlı bilgi şeridinde de duraklatma gerekçesi ve hata mesajı gerçek zamanlı yansıtılır.
-* **🎉 Baskı Tamamlandı & Uzaktan Platform Temizleme Onayı (setClearPlatform):** Önceki baskı bittiğinde FlashForge yazıcılarının ekranında beliren *"Yazdırma tamamlandı, platformu temizleyin!"* modal penceresi ve `BUILDING_COMPLETED` durumu otomatik algılanır. Sayfa tepesinde parlayan turkuaz ikaz paneli açılır, zafer fanfarı çalar ve tek tıkla **"🧹 Platformu Temizle"** butonuna basıldığında Flash Studio Desktop'ın kullandığı tersine mühendislik ile çözülmüş `stateCtrl_cmd / setClearPlatform` komutu (`/api/clear_platform`) yazıcıya iletilerek **fiziksel yazıcı ekranına gitmeye gerek kalmadan** uyarı uzaktan kapatılır ve yazıcı anında `READY` durumuna geçer.
-* **🛡️ Otomatik İyileştirmeli G-Code Gönderimi (Broken Pipe Koruması):** Platform temizlenmeden yeni bir G-Code gönderilmeye çalışıldığında yazıcının bağlantıyı koparması (`[Errno 32] Broken pipe`) otomatik yakalanır; arka planda `setClearPlatform` komutu iletilip yükleme otomatik yinelenerek baskı kesintisiz başlatılır.
+* **🎉 Baskı Tamamlandı & Uzaktan Çok Yönlü Platform Temizleme:** Önceki baskı bittiğinde FlashForge yazıcılarının ekranında beliren *"Yazdırma tamamlandı, platformu temizleyin!"* modal penceresi ve `BUILDING_COMPLETED` durumu otomatik algılanır. Sayfa tepesinde parlayan turkuaz ikaz paneli açılır, zafer fanfarı çalar ve tek tıkla **"🧹 Platformu Temizle"** butonuna basıldığında tersine mühendislik ile çözülmüş `setClearPlatform`, `cleanPlate`, `clearError`, `reset` JSON komutları ve TCP `~M26` komut zinciri yazıcıya iletilerek **fiziksel yazıcı ekranına gitmeye gerek kalmadan** uyarı uzaktan kapatılır ve yazıcı anında `READY` durumuna geçer.
+* **🛡️ Otomatik İyileştirmeli G-Code Gönderimi (Broken Pipe Koruması):** Platform temizlenmeden yeni bir G-Code gönderilmeye çalışıldığında yazıcının bağlantıyı koparması (`[Errno 32] Broken pipe`) otomatik yakalanır; arka planda platform temizleme komutu iletilip yükleme otomatik yinelenerek baskı kesintisiz başlatılır.
 
 ---
 
@@ -130,10 +131,14 @@ Flash Studio masaüstü uygulamasındaki gibi, yazdırma başlatılmadan önce a
 
 ---
 
-### 9. ⚡ İki Aşamalı Baskı Başlatma & Tersine Mühendislik Protokolü (Dual-Stage Print Dispatch)
+### 9. ⚡ İki Aşamalı Baskı Başlatma, Akıllı eMMC Retry & Tersine Mühendislik Protokolü (Dual-Stage Print Dispatch)
 Flash Studio Desktop (`FlashNetwork.dll`) ve FlashForge AD5X firmware haberleşmesi derinlemesine tersine mühendislik ile çözümlenmiştir:
-* **Aşama 1 - Dosya Yükleme (`POST http://{IP}:8898/uploadGcode`):** `multipart/form-data` formatında dosya yazıcının dahili flash hafızasına kaydedilir. FlashForge firmware mimarisinde bu endpoint yalnızca dosya sistemine yazma işlemi yapar; başlıkta `printNow: 1` olsa dahi baskıyı başlatmaz.
-* **Aşama 2 - Fiziksel Baskı Başlatma (`POST http://{IP}:8898/printGcode`):** Dosya yazımı doğrulandıktan hemen sonra sunucu, yazıcının port 8898 üzerindeki özel JSON servisine bağlanır. Aşağıdaki JSON şeması ile fiziksel baskı başlatma komutu iletilir:
+* **Aşama 1 - Güvenli Dosya Yükleme (`POST http://{IP}:8898/uploadGcode`):** `multipart/form-data` formatında dosya yazıcının dahili flash hafızasına kaydedilir. Dosya yazımı esnasında çakışmaları ve asılı kalmaları önlemek için `printNow: 0` bayrağı ile atomik olarak kaydedilir.
+* **Aşama 2 - Akıllı eMMC Eşitleme & Retry Motoru (`POST http://{IP}:8898/printGcode`):** Büyük dosyalarda Linux/Android tabanlı yazıcı eMMC belleğinin diske yazım (flush) gecikmesi nedeniyle dönebilen *"Printer is Busy"* yanıtına karşı, 6 denemeli (her adımda 2.0 saniye beklemeli) akıllı tekrar algoritması devreye girer.
+* **Otomatik Platform Kurtarma:** 2. denemede yazıcı hâlâ meşgulse, arka planda platform kilitlenme durumunu sıfırlamak için `_clear_platform_sync` komutu otomatik tetiklenir.
+* **🛡️ Çok Aşamalı TCP Fallback:** HTTP servisinin yanıt vermediği veya kilitlendiği durumlarda TCP Port 8899 üzerinden `~M23 0:/user/{fileName}` ve `~M24` çiftli komut zinciri otomatik devreye girerek baskının kesin olarak başlamasını sağlar.
+* **▶️ Yazıcıdaki Dosyayı Tek Tıkla Başlatma (`can_start_stored`):** Eğer dosya başarıyla yüklenmiş fakat yazıcı o anda meşgul olduğu için baskı başlatılamamışsa, kullanıcıya tekrar yükleme beklemeden modal penceresinden tek tıkla **"▶️ Yazıcıdaki Dosyayı Başlat"** ve **"🧹 Platformu Temizle"** aksiyonları sunulur.
+* **JSON Baskı Başlatma Şeması:**
   ```json
   {
     "serialNumber": "SNMQQF9301246",
@@ -156,7 +161,6 @@ Flash Studio Desktop (`FlashNetwork.dll`) ve FlashForge AD5X firmware haberleşm
     ]
   }
   ```
-* **🛡️ Otomatik TCP Geri Dönüş (Fallback):** HTTP servisinin erişilemediği eski firmware sürümleri için TCP Port 8899 üzerinden `~M23 0:/user/{fileName}` ve `~M24` çiftli komut zinciri otomatik devreye girer.
 
 ---
 
@@ -172,6 +176,7 @@ Yazıcının dahili flash belleğinde kayıtlı tüm modelleri yönetmek için t
 Baskılarınızın hızlandırılmış sinematik kayıtlarını hiçbir harici donanım veya OctoPrint eklentisine ihtiyaç duymadan oluşturur:
 * **📸 Katman Senkronize Kare Yakalama (`TimeLapseManager`):** `M27` katman telemetrisi dinlenerek her yeni katmana geçildiğinde kamera akışından otomatik olarak yüksek çözünürlüklü JPEG kare yakalanır. Katmansız veya vazo modundaki baskılarda ise akıllı zamanlayıcı devreye girer.
 * **🎞️ Çoklu Format Derleme (MP4 & WebP):** Baskı tamamlandığında sistemde `ffmpeg` mevcutsa H.264 MP4 video; kurulu değilse PIL (Pillow) motoruyla sıfır harici bağımlılıkla yüksek kaliteli hareketli **WebP Time-Lapse** videosu otomatik olarak derlenir.
+* **🔄 Kesinti ve Oturum Kurtarma:** Panel veya servis yeniden başlatılsa bile yarım kalan kare dizinleri taranır, geçerli kareler kurtarılır ve kullanıcı galerisine otomatik eklenir.
 * **🎚️ Katman Katman İnteraktif İnceleme (Scrubber Player):** Tarayıcı üzerinden katman kaydırma çubuğu ile baskının istediğiniz anına gidebilir, katman katman nozul hareketini geri veya ileri sarabilirsiniz.
 * **📥 İndirme ve Yönetim API'leri:**
   * `GET /api/timelapse/list` ➔ Kayıtlı oturumlar ve aktif baskı kare sayısı.

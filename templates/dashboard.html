@@ -888,8 +888,14 @@
 
         .status-grid {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+
+        @media (max-width: 480px) {
+            .status-grid {
+                grid-template-columns: 1fr;
+            }
         }
 
         .status-item {
@@ -2200,6 +2206,16 @@
                                 Katman
                             </span>
                             <span class="status-item-value" id="currentLayer">0 / 0</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-item-label">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <polyline points="12 6 12 12 14 10"></polyline>
+                                </svg>
+                                Geçen Süre
+                            </span>
+                            <span class="status-item-value" id="elapsedPrintTime">--:--</span>
                         </div>
                         <div class="status-item">
                             <span class="status-item-label">
@@ -3789,36 +3805,45 @@
         }
 
         function findBestSlot(toolColor, tId, slots) {
-            if (!slots || slots.length === 0) return 0;
+            if (!slots || slots.length === 0) return 1;
             
+            const getSlotNum = (s, idx) => (s && s.slotId !== undefined && s.slotId !== null) ? Number(s.slotId) : (idx + 1);
+
             // 1. Exact hex match on a slot that has filament
             for (let i = 0; i < slots.length; i++) {
                 if (slots[i].hasFilament && slots[i].materialColor && 
                     slots[i].materialColor.toLowerCase() === toolColor.toLowerCase()) {
-                    return i;
+                    return getSlotNum(slots[i], i);
                 }
             }
             
             // 2. Closest color match on loaded slots (threshold distance < 65)
-            let closestIdx = -1;
+            let closestSlotNum = -1;
             let minDistance = 65;
             for (let i = 0; i < slots.length; i++) {
                 if (slots[i].hasFilament && slots[i].materialColor) {
                     const d = colorDistance(slots[i].materialColor, toolColor);
                     if (d < minDistance) {
                         minDistance = d;
-                        closestIdx = i;
+                        closestSlotNum = getSlotNum(slots[i], i);
                     }
                 }
             }
-            if (closestIdx !== -1) return closestIdx;
+            if (closestSlotNum !== -1) return closestSlotNum;
 
-            // 3. Fallback: match by index if valid
+            // 3. Match by tool index if valid and loaded
             if (tId < slots.length && slots[tId].hasFilament) {
-                return tId;
+                return getSlotNum(slots[tId], tId);
             }
 
-            return tId < slots.length ? tId : 0;
+            // 4. Any slot that has filament
+            for (let i = 0; i < slots.length; i++) {
+                if (slots[i].hasFilament) {
+                    return getSlotNum(slots[i], i);
+                }
+            }
+
+            return getSlotNum(slots[0], 0);
         }
 
         function createMaterialRowElement(toolId, toolColor, matName, slots) {
@@ -3836,26 +3861,27 @@
             row.style.borderRadius = '8px';
             row.style.padding = '8px 12px';
 
-            const bestSlotIdx = findBestSlot(toolColor, toolId, slots);
+            const bestSlotId = findBestSlot(toolColor, toolId, slots);
 
             let slotOptionsHtml = '';
             slots.forEach((s, sIdx) => {
-                const slotNum = s.slotId || (sIdx + 1);
+                const slotNum = (s.slotId !== undefined && s.slotId !== null) ? Number(s.slotId) : (sIdx + 1);
                 const isLoaded = Boolean(s.hasFilament);
                 const sColor = s.materialColor || '#ffffff';
                 const sName = s.materialName || 'PLA';
-                const isSelected = sIdx === bestSlotIdx;
+                const isSelected = slotNum === bestSlotId;
                 const statusText = isLoaded ? '● Yüklü' : '○ Boş';
 
                 slotOptionsHtml += `
-                    <option value="${sIdx}" data-slot-color="${sColor}" ${isSelected ? 'selected' : ''}>
+                    <option value="${slotNum}" data-slot-color="${sColor}" ${isSelected ? 'selected' : ''}>
                         Kanal ${slotNum}: ${sName} (${sColor}) [${statusText}]
                     </option>
                 `;
             });
-            slotOptionsHtml += `<option value="-1" data-slot-color="${toolColor}">Harici Makara (Dış Besleme)</option>`;
+            slotOptionsHtml += `<option value="0" data-slot-color="${toolColor}">Harici Makara (Dış Besleme)</option>`;
 
-            const selectedSlotColor = slots[bestSlotIdx]?.materialColor || toolColor;
+            const selectedSlot = slots.find((s, idx) => ((s.slotId !== undefined && s.slotId !== null) ? Number(s.slotId) : (idx + 1)) === bestSlotId);
+            const selectedSlotColor = selectedSlot?.materialColor || toolColor;
 
             row.innerHTML = `
                 <div style="display: flex; align-items: center; gap: 10px; min-width: 145px;">
@@ -4033,7 +4059,7 @@
                 const rawToolId = parseInt(row.dataset.toolId, 10);
                 const toolId = isNaN(rawToolId) ? idx : rawToolId;
                 const slotSelect = row.querySelector('.modal-slot-select');
-                const chosenSlot = slotSelect ? parseInt(slotSelect.value, 10) : 0;
+                const chosenSlot = slotSelect ? parseInt(slotSelect.value, 10) : 1;
                 const toolColor = row.dataset.toolColor || '#161616';
                 const matName = row.dataset.materialName || 'PLA';
                 
@@ -4119,6 +4145,25 @@
                             if (btnOpen) btnOpen.disabled = true;
                             load();
                         }, 1500);
+                    } else if (resp && resp.can_start_stored) {
+                        resultMsg.style.display = 'block';
+                        resultMsg.style.background = 'rgba(245, 158, 11, 0.12)';
+                        resultMsg.style.color = '#fbbf24';
+                        resultMsg.style.border = '1px solid rgba(245, 158, 11, 0.35)';
+                        resultMsg.innerHTML = `
+                            <div style="margin-bottom: 8px;">⚠️ ${resp.error}</div>
+                            <div style="font-size: 11.5px; margin-bottom: 10px; color: var(--text-muted);">
+                                Dosya yazıcıya iletildi. Yazıcı dosya kaydını tamamladıktan sonra tekrar yükleme yapmadan doğrudan başlatabilirsiniz:
+                            </div>
+                            <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
+                                <button type="button" class="btn btn-primary btn-pulse-glow" onclick="startUploadedPrintDirectly('${encodeURIComponent(resp.filename)}')" style="padding: 6px 14px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px;">
+                                    ▶️ Yazıcıdaki Dosyayı Başlat
+                                </button>
+                                <button type="button" class="btn btn-secondary" onclick="cleanPlatformFromModal()" style="padding: 6px 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px;">
+                                    🧹 Platformu Temizle
+                                </button>
+                            </div>
+                        `;
                     } else {
                         throw new Error(resp.error || 'Bilinmeyen hata');
                     }
@@ -4143,6 +4188,98 @@
             });
 
             xhr.send(fileToSend);
+        }
+
+        async function cleanPlatformFromModal() {
+            try {
+                const resp = await fetch('/api/clear_platform', { method: 'POST' });
+                const res = await resp.json();
+                alert(res.message || 'Platform onaylandı.');
+            } catch(e) {
+                alert('Hata: ' + e.message);
+            }
+        }
+
+        async function startUploadedPrintDirectly(encodedFilename) {
+            const filename = decodeURIComponent(encodedFilename);
+            const leveling = document.getElementById('optLevelingBeforePrint')?.checked ?? true;
+            const useMatlStation = document.getElementById('optUseMatlStation')?.checked ?? true;
+            const timeLapse = document.getElementById('optTimeLapseVideo')?.checked ?? true;
+
+            const mappings = [];
+            const rows = document.querySelectorAll('.modal-material-row');
+            rows.forEach((row, idx) => {
+                const rawToolId = parseInt(row.dataset.toolId, 10);
+                const toolId = isNaN(rawToolId) ? idx : rawToolId;
+                const slotSelect = row.querySelector('.modal-slot-select');
+                const chosenSlot = slotSelect ? parseInt(slotSelect.value, 10) : 1;
+                const toolColor = row.dataset.toolColor || '#161616';
+                const matName = row.dataset.materialName || 'PLA';
+                let slotColor = toolColor;
+                if (slotSelect) {
+                    const selectedOpt = slotSelect.options[slotSelect.selectedIndex];
+                    if (selectedOpt && selectedOpt.dataset.slotColor) slotColor = selectedOpt.dataset.slotColor;
+                }
+                mappings.push({
+                    toolId: toolId,
+                    slotId: chosenSlot >= 0 ? chosenSlot : 0,
+                    materialName: matName,
+                    toolMaterialColor: toolColor,
+                    slotMaterialColor: slotColor
+                });
+            });
+
+            const resultMsg = document.getElementById('modalUploadResult');
+            resultMsg.innerHTML = '<span style="color: var(--color-primary);">⏳ Yazıcıda baskı başlatılıyor, lütfen bekleyin...</span>';
+
+            try {
+                const resp = await fetch('/api/print/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        filename: filename,
+                        leveling_before_print: leveling,
+                        time_lapse_video: timeLapse,
+                        use_matl_station: useMatlStation,
+                        flow_calibration: false,
+                        first_layer_inspection: false,
+                        material_mappings: mappings
+                    })
+                });
+                const res = await resp.json();
+                if (resp.ok && res.ok) {
+                    resultMsg.style.background = 'rgba(46, 213, 115, 0.1)';
+                    resultMsg.style.color = '#2ed573';
+                    resultMsg.style.border = '1px solid rgba(46, 213, 115, 0.2)';
+                    resultMsg.textContent = '🎉 ' + (res.message || 'Baskı başarıyla başlatıldı!');
+
+                    const fileToSend = selectedFile || pendingUploadFile;
+                    if (fileToSend) {
+                        GCode3DViewer.loadFile(fileToSend);
+                        switchVisualTab('gcode');
+                    }
+
+                    setTimeout(() => {
+                        closePrintPlateModal();
+                        selectedFile = null;
+                        pendingUploadFile = null;
+                        document.getElementById('gcodeFileInput').value = '';
+                        document.getElementById('selectedFileName').textContent = 'Dosya seçilmedi';
+                        document.getElementById('selectedFileName').style.color = 'var(--text-muted)';
+                        document.getElementById('btnUploadFile').disabled = true;
+                        const btnOpen = document.getElementById('btnOpenPrintModal');
+                        if (btnOpen) btnOpen.disabled = true;
+                        load();
+                    }, 1500);
+                } else {
+                    resultMsg.style.background = 'rgba(255, 71, 87, 0.1)';
+                    resultMsg.style.color = '#ff4757';
+                    resultMsg.style.border = '1px solid rgba(255, 71, 87, 0.2)';
+                    resultMsg.textContent = 'Hata: ' + (res.error || 'Baskı başlatılamadı.');
+                }
+            } catch(e) {
+                resultMsg.textContent = 'Bağlantı hatası: ' + e.message;
+            }
         }
 
         function uploadGcodeFile(forceClean = false) {
@@ -4689,30 +4826,68 @@
                     document.getElementById('ledOptOn').classList.remove('active');
                 }
 
-                // Rolling ETA estimator
+                // Print Time & ETA logic (Geçen Süre & Kalan Süre)
+                const elapsedEl = document.getElementById('elapsedPrintTime');
                 const etaEl = document.getElementById('estimatedETA');
-                const layerText = (data.layer || '').trim();
-                const currentLayer = layerText.includes('/') ? parseInt(layerText.split('/')[0]) : NaN;
-                const totalLayer = layerText.includes('/') ? parseInt(layerText.split('/')[1]) : NaN;
-                
-                if (Number.isFinite(currentLayer) && Number.isFinite(totalLayer) && totalLayer > 0 && progressPct > 0) {
-                    history.push({ ts: Date.now(), pct: progressPct });
-                    if (history.length > 30) history.shift();
-                    
-                    const elapsed = (Date.now() - (history[0]?.ts || Date.now())) / 1000;
-                    const delta = ((history[history.length - 1]?.pct || progressPct) - (history[0]?.pct || progressPct));
-                    
-                    if (delta > 0 && elapsed > 0) {
-                        const pctPerSec = delta / elapsed;
-                        const remainingPct = 100 - progressPct;
-                        const secondsLeft = remainingPct / pctPerSec;
-                        etaEl.textContent = formatDuration(secondsLeft);
+                const isPrintingOrPaused = isPrinting || isPaused;
+
+                // 1. Elapsed Time (Geçen Süre)
+                if (elapsedEl) {
+                    const printDurationSec = data.print_duration || data.detail_raw?.printDuration || 0;
+                    if (isPrintingOrPaused) {
+                        elapsedEl.textContent = printDurationSec > 0 ? formatDuration(printDurationSec) : '0:00';
+                        elapsedEl.style.color = '#38bdf8';
+                    } else if (isCompleted) {
+                        elapsedEl.textContent = printDurationSec > 0 ? formatDuration(printDurationSec) : '--:--';
+                        elapsedEl.style.color = '#2ed573';
                     } else {
-                        etaEl.textContent = 'Hesaplanıyor...';
+                        elapsedEl.textContent = '--:--';
+                        elapsedEl.style.color = '#ffffff';
                     }
-                } else {
-                    history = [];
-                    etaEl.textContent = 'Aktif iş yok';
+                }
+
+                // 2. Remaining Time (Kalan Süre / ETA)
+                if (etaEl) {
+                    if (isCompleted) {
+                        etaEl.textContent = 'Tamamlandı';
+                        etaEl.style.color = '#2ed573';
+                        history = [];
+                    } else if (isPrintingOrPaused) {
+                        etaEl.style.color = '#ffffff';
+                        const fwEstimatedTime = Number(data.estimated_time || data.detail_raw?.estimatedTime || 0);
+
+                        if (fwEstimatedTime > 0) {
+                            etaEl.textContent = formatDuration(fwEstimatedTime);
+                        } else {
+                            // Rolling ETA estimator as fallback
+                            const layerText = (data.layer || '').trim();
+                            const currentLayer = layerText.includes('/') ? parseInt(layerText.split('/')[0]) : NaN;
+                            const totalLayer = layerText.includes('/') ? parseInt(layerText.split('/')[1]) : NaN;
+
+                            if (Number.isFinite(currentLayer) && Number.isFinite(totalLayer) && totalLayer > 0 && progressPct > 0) {
+                                history.push({ ts: Date.now(), pct: progressPct });
+                                if (history.length > 30) history.shift();
+
+                                const elapsed = (Date.now() - (history[0]?.ts || Date.now())) / 1000;
+                                const delta = ((history[history.length - 1]?.pct || progressPct) - (history[0]?.pct || progressPct));
+
+                                if (delta > 0 && elapsed > 0) {
+                                    const pctPerSec = delta / elapsed;
+                                    const remainingPct = 100 - progressPct;
+                                    const secondsLeft = remainingPct / pctPerSec;
+                                    etaEl.textContent = formatDuration(secondsLeft);
+                                } else {
+                                    etaEl.textContent = 'Hesaplanıyor...';
+                                }
+                            } else {
+                                etaEl.textContent = 'Hesaplanıyor...';
+                            }
+                        }
+                    } else {
+                        history = [];
+                        etaEl.textContent = 'Aktif iş yok';
+                        etaEl.style.color = 'var(--text-muted)';
+                    }
                 }
 
                 // Sync Live Tuning settings from API (only if user is not currently adjusting them)
