@@ -24,7 +24,9 @@ Yazıcının **TCP kontrol portu (8899)**, **HTTP detay/sensör portu (8898)** v
 flashforge/
 ├── hFlashForgeLogo.svg          # Vektörel SVG uygulama ve marka logosu
 ├── hFlashForgeLogo.png          # PNG formatında uygulama simgesi / favicon
-├── screenshot.png               # Web Dashboard arayüz ekran görüntüsü
+├── screenshot.png               # Web Dashboard tam boyutlu arayüz ekran görüntüsü (Tüm panel, IFS ve kontroller)
+├── screenshot_camera.png        # Canlı Kamera akış arayüzü ekran görüntüsü
+├── screenshot_3d.png            # 3D G-Code model önizleme ve güzergah görselleştirici ekran görüntüsü
 ├── flashforge_panel.py          # FastAPI tabanlı Web Sunucu (Backend), Kamera Proxy & Time-Lapse Motoru
 ├── config.json                  # Yazıcı bağlantı ve kalıcı ince ayarlar (Otomatik oluşturulur)
 ├── requirements.txt             # Python paket bağımlılıkları listesi
@@ -54,6 +56,11 @@ flashforge/
 ## ⚙️ Temel Özellikler ve Çalışma Mantığı
 
 ### 1. 📷 3 Farklı Canlı Kamera Akış Modu (Camera Streaming)
+
+<p align="center">
+  <img src="screenshot_camera.png" alt="FlashForge AD5X Canlı Kamera Yayını" width="100%"/>
+</p>
+
 Yazıcının dâhili `mjpg-streamer` kamera servisi donanımsal olarak tek bağlantı sınırı (single-client limit) içerebilir. Panel, her türlü ağ koşuluna uyum sağlayacak 3 farklı mod sunar:
 * **🌐 Doğrudan Mod (Port 8080) [Varsayılan]:** Tarayıcınız yerel ağdayken doğrudan `http://<YAZICI_IP>:8080/?action=stream` adresine bağlanır. Sunucuya 0% yük bindirir, sıfır gecikmeyle (native 30fps) kristal netliğinde yayın verir.
 * **🔄 Sunucu Proxy Modu (`/api/camera/stream`):** Dış ağdan, VPN veya Reverse Proxy arkasından erişen kullanıcılar için yayını `CameraBroadcasterThread` motoru üzerinden proxy'ler ve birden fazla istemciye aynı anda dağıtır.
@@ -63,6 +70,11 @@ Yazıcının dâhili `mjpg-streamer` kamera servisi donanımsal olarak tek bağl
 ---
 
 ### 2. 🧊 3D G-Code Önizleme ve Canlı Baskı Görselleştirici (WebGL / Three.js)
+
+<p align="center">
+  <img src="screenshot_3d.png" alt="FlashForge AD5X 3D G-Code Önizleme" width="100%"/>
+</p>
+
 Mevcut görsel izleme kartı içerisine entegre edilen modern 3D görselleştirici ile baskılarınızı yazdırmadan önce veya yazdırılırken gerçek zamanlı inceleyebilirsiniz:
 * **📐 FlashForge AD5X 3D Tablası:** 220 × 220 × 220 mm yapı hacmi, milimetrik koordinat ızgarası ve orijin (0,0) eksenleri.
 * **🌈 Dinamik Katman Renklendirmesi:** Katman yüksekliğine göre HSL renk geçişli (Cyan ➔ İndigo ➔ Menekşe ➔ Amber) ekstrüzyon çizgileri ve açılıp kapatılabilen yarı saydam boşta hareket (travel) hatları.

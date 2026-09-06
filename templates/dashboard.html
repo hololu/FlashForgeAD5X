@@ -4939,6 +4939,26 @@
         setTimeout(reloadCamera, 100);
         setTimeout(() => { if (typeof loadTimelapseRecordings === 'function') loadTimelapseRecordings(); }, 500);
 
+        // URL Parameter handling (e.g. ?tab=gcode or ?tab=camera)
+        try {
+            const urlParams = new URLSearchParams(window.location.search);
+            const tabParam = urlParams.get('tab');
+            if (tabParam === 'gcode') {
+                setTimeout(() => {
+                    if (typeof switchVisualTab === 'function') switchVisualTab('gcode');
+                    if (window.GCode3DViewer && !window.GCode3DViewer.currentModel) {
+                        window.GCode3DViewer.loadDemoCube();
+                    }
+                }, 400);
+            } else if (tabParam === 'camera') {
+                setTimeout(() => {
+                    if (typeof switchVisualTab === 'function') switchVisualTab('camera');
+                }, 400);
+            }
+        } catch (e) {
+            console.error('URL params error:', e);
+        }
+
         // Settings Modal Management
         function openSettingsModal() {
             fetch('/api/settings')
