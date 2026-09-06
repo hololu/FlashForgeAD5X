@@ -4052,6 +4052,22 @@
             const timeLapse = document.getElementById('optTimeLapseVideo')?.checked ?? true;
             const autoClean = document.getElementById('modalAutoCleanPlatform')?.checked ?? false;
 
+            const tlSelectVal = document.getElementById('optTimeLapseModeSelect')?.value || 'hybrid_10';
+            let tlMode = 'hybrid';
+            let tlInterval = 10;
+            if (tlSelectVal === 'layer_only') {
+                tlMode = 'layer';
+                tlInterval = 0;
+            } else if (tlSelectVal.startsWith('time_')) {
+                tlMode = 'time';
+                tlInterval = parseInt(tlSelectVal.split('_')[1]) || 10;
+            } else if (tlSelectVal.startsWith('hybrid_')) {
+                tlMode = 'hybrid';
+                tlInterval = parseInt(tlSelectVal.split('_')[1]) || 10;
+            }
+
+            window.isStartingPrintJob = true;
+
             // Material mappings
             const mappings = [];
             const rows = document.querySelectorAll('.modal-material-row');
@@ -4098,6 +4114,8 @@
                 force_clean: autoClean ? 'true' : 'false',
                 leveling_before_print: leveling ? 'true' : 'false',
                 time_lapse_video: timeLapse ? 'true' : 'false',
+                time_lapse_mode: tlMode,
+                time_lapse_interval: String(tlInterval),
                 use_matl_station: useMatlStation ? 'true' : 'false',
                 flow_calibration: 'false',
                 first_layer_inspection: 'false',
@@ -4206,6 +4224,22 @@
             const useMatlStation = document.getElementById('optUseMatlStation')?.checked ?? true;
             const timeLapse = document.getElementById('optTimeLapseVideo')?.checked ?? true;
 
+            const tlSelectVal = document.getElementById('optTimeLapseModeSelect')?.value || 'hybrid_10';
+            let tlMode = 'hybrid';
+            let tlInterval = 10;
+            if (tlSelectVal === 'layer_only') {
+                tlMode = 'layer';
+                tlInterval = 0;
+            } else if (tlSelectVal.startsWith('time_')) {
+                tlMode = 'time';
+                tlInterval = parseInt(tlSelectVal.split('_')[1]) || 10;
+            } else if (tlSelectVal.startsWith('hybrid_')) {
+                tlMode = 'hybrid';
+                tlInterval = parseInt(tlSelectVal.split('_')[1]) || 10;
+            }
+
+            window.isStartingPrintJob = true;
+
             const mappings = [];
             const rows = document.querySelectorAll('.modal-material-row');
             rows.forEach((row, idx) => {
@@ -4240,6 +4274,8 @@
                         filename: filename,
                         leveling_before_print: leveling,
                         time_lapse_video: timeLapse,
+                        time_lapse_mode: tlMode,
+                        time_lapse_interval: tlInterval,
                         use_matl_station: useMatlStation,
                         flow_calibration: false,
                         first_layer_inspection: false,
@@ -4969,6 +5005,17 @@
                 document.getElementById('settingsSerial').value = data.serial || '';
                 document.getElementById('settingsCheckCode').value = data.check_code || '';
                 
+                const tlSelect = document.getElementById('settingsTimelapseMode');
+                if (tlSelect) {
+                    const m = data.timelapse_mode || 'hybrid';
+                    const iv = data.timelapse_interval || 10;
+                    if (m === 'layer') {
+                        tlSelect.value = 'layer_only';
+                    } else {
+                        tlSelect.value = `${m}_${iv}`;
+                    }
+                }
+                
                 // TCP Diagnostics
                 const tcpDot = document.getElementById('debugTcpDot');
                 const tcpTxt = document.getElementById('debugTcpText');
@@ -5040,10 +5087,24 @@
                 return;
             }
             
+            const tlVal = document.getElementById('settingsTimelapseMode')?.value || 'hybrid_10';
+            let timelapse_mode = 'hybrid';
+            let timelapse_interval = 10;
+            if (tlVal === 'layer_only') {
+                timelapse_mode = 'layer';
+                timelapse_interval = 0;
+            } else if (tlVal.startsWith('time_')) {
+                timelapse_mode = 'time';
+                timelapse_interval = parseInt(tlVal.split('_')[1]) || 10;
+            } else if (tlVal.startsWith('hybrid_')) {
+                timelapse_mode = 'hybrid';
+                timelapse_interval = parseInt(tlVal.split('_')[1]) || 10;
+            }
+            
             fetch('/api/settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ host, port, serial, check_code })
+                body: JSON.stringify({ host, port, serial, check_code, timelapse_mode, timelapse_interval })
             })
             .then(r => r.json())
             .then(data => {
@@ -6103,11 +6164,33 @@
                 const headerCloseBtn = document.getElementById('btnGcodeHeaderCloseModel');
                 if (headerCloseBtn) headerCloseBtn.style.display = 'inline-flex';
 
+                // If printer is actively printing, initialize view to current layer instead of completed model
+                let targetInitialLayer = this.totalLayers;
+                const statusStr = (window.lastStatusData?.machine_status || '').toUpperCase();
+                const isActivelyPrinting = Boolean(window.lastStatusData?.is_printing) || 
+                                           statusStr.includes('BUILD') || 
+                                           statusStr.includes('PRINT') ||
+                                           Boolean(window.isStartingPrintJob);
+                if (isActivelyPrinting) {
+                    let liveLayer = 1;
+                    if (window.lastStatusData?.layer && window.lastStatusData.layer.includes('/')) {
+                        liveLayer = parseInt(window.lastStatusData.layer.split('/')[0].trim()) || 0;
+                    } else if (window.lastStatusData?.current_layer) {
+                        liveLayer = parseInt(window.lastStatusData.current_layer) || 0;
+                    }
+                    if (liveLayer === 0 && window.lastStatusData?.progress && this.totalLayers > 0) {
+                        liveLayer = Math.max(1, Math.round((window.lastStatusData.progress / 100) * this.totalLayers));
+                    }
+                    targetInitialLayer = Math.max(1, Math.min(liveLayer || 1, this.totalLayers));
+                    this.isLiveSyncActive = true;
+                    this.updateLiveSyncButton();
+                }
+
                 const layerSlider = document.getElementById('gcodeLayerSlider');
                 if (layerSlider) {
                     layerSlider.min = 1;
                     layerSlider.max = this.totalLayers;
-                    layerSlider.value = this.totalLayers;
+                    layerSlider.value = targetInitialLayer;
                 }
 
                 const pathSlider = document.getElementById('gcodePathSlider');
@@ -6115,7 +6198,7 @@
                     pathSlider.value = 1000;
                 }
 
-                this.setLayer(this.totalLayers, 1.0);
+                this.setLayer(targetInitialLayer, 1.0);
                 this.render();
             },
 
@@ -6262,8 +6345,8 @@
                 const bannerDetail = document.getElementById('gcodeLiveBannerDetail');
 
                 const status = (data.machine_status || '').toUpperCase();
-                const isPrinting = status.includes('BUILD') || status.includes('PRINT');
-                const isPaused = status.includes('PAUSE');
+                const isPrinting = status.includes('BUILD') || status.includes('PRINT') || Boolean(data.is_printing);
+                const isPaused = status.includes('PAUSE') || Boolean(data.is_paused);
 
                 let curL = 0;
                 let totalL = 0;
@@ -6271,6 +6354,23 @@
                     const parts = data.layer.split('/');
                     curL = parseInt(parts[0].trim()) || 0;
                     totalL = parseInt(parts[1].trim()) || 0;
+                }
+                if (curL === 0 && data.current_layer) {
+                    curL = parseInt(data.current_layer) || 0;
+                }
+                if (totalL === 0 && data.total_layers) {
+                    totalL = parseInt(data.total_layers) || 0;
+                }
+                if (curL === 0 && data.detail_raw) {
+                    curL = parseInt(data.detail_raw.printLayer) || 0;
+                    totalL = totalL || parseInt(data.detail_raw.targetPrintLayer) || 0;
+                }
+                if (isPrinting && curL === 0) {
+                    if (data.progress && this.totalLayers > 0) {
+                        curL = Math.max(1, Math.round((data.progress / 100) * this.totalLayers));
+                    } else {
+                        curL = 1;
+                    }
                 }
 
                 const cleanFile = (data.current_file || '').replace(/\\/g, '/').split('/').pop().trim();
@@ -6321,8 +6421,15 @@
                 }
 
                 // If live sync is active, advance 3D layer with printer
-                if (this.isLiveSyncActive && curL > 0 && curL !== this.currentLayerIndex && this.layers.length > 0) {
-                    this.setLayer(curL, 1.0);
+                if (isPrinting && !this.isLiveSyncActive && this.layers.length > 0 && !this.userManuallyPannedLayers) {
+                    this.isLiveSyncActive = true;
+                    this.updateLiveSyncButton();
+                }
+
+                if (this.isLiveSyncActive && curL > 0 && this.layers.length > 0) {
+                    if (curL !== this.currentLayerIndex) {
+                        this.setLayer(curL, 1.0);
+                    }
                 }
             },
 
@@ -6726,13 +6833,27 @@
                             </div>
                         </label>
                         
-                        <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none;">
-                            <input type="checkbox" id="optTimeLapseVideo" checked style="accent-color: var(--color-primary); margin-top: 3px; cursor: pointer;">
-                            <div>
-                                <div style="font-size: 12.5px; font-weight: 600; color: #ffffff;">Time-Lapse Video (timeLapseVideo)</div>
-                                <div style="font-size: 11px; color: var(--text-secondary);">Her katmanda kamera karesi alarak hızlandırılmış video kaydeder.</div>
+                        <div style="display: flex; flex-direction: column; gap: 6px;">
+                            <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none;">
+                                <input type="checkbox" id="optTimeLapseVideo" checked onchange="document.getElementById('optTimeLapseModeWrap').style.display = this.checked ? 'block' : 'none';" style="accent-color: var(--color-primary); margin-top: 3px; cursor: pointer;">
+                                <div style="flex: 1;">
+                                    <div style="font-size: 12.5px; font-weight: 600; color: #ffffff;">Time-Lapse Video (Otomatik Kamera Çekimi)</div>
+                                    <div style="font-size: 11px; color: var(--text-secondary);">Kamera akışından kareler toplayıp WebP ve MP4 hızlandırılmış video derler.</div>
+                                </div>
+                            </label>
+                            <div id="optTimeLapseModeWrap" style="padding-left: 28px;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 11.5px; color: var(--text-muted);">Çekim Aralığı:</span>
+                                    <select id="optTimeLapseModeSelect" class="form-input" style="font-size: 11.5px; padding: 4px 8px; width: auto; height: 30px; border-radius: 6px; background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: #fff;">
+                                        <option value="hybrid_10" selected>⚡ Hibrit (Katman Başı + 10s)</option>
+                                        <option value="time_5">⏱️ Zaman: Her 5 Saniyede 1 Kare (Küçük Baskılar)</option>
+                                        <option value="time_10">⏱️ Zaman: Her 10 Saniyede 1 Kare</option>
+                                        <option value="time_30">⏱️ Zaman: Her 30 Saniyede 1 Kare</option>
+                                        <option value="layer_only">📐 Sadece Katman Başı (1 Kare/Katman)</option>
+                                    </select>
+                                </div>
                             </div>
-                        </label>
+                        </div>
                     </div>
                 </div>
 
@@ -6837,6 +6958,18 @@
                 <div class="form-group">
                     <label class="form-label" for="settingsCheckCode">LAN Modu Şifresi (FLASHFORGE_CHECK_CODE) [IFS İçin]</label>
                     <input type="password" class="form-input" id="settingsCheckCode" placeholder="LAN modundaki 8 haneli kod">
+                </div>
+
+                <!-- Default Timelapse Configuration -->
+                <div class="form-group">
+                    <label class="form-label" for="settingsTimelapseMode">Varsayılan Time-Lapse Çekim Modu</label>
+                    <select class="form-input" id="settingsTimelapseMode" style="background: var(--bg-tertiary); color: #fff;">
+                        <option value="hybrid_10">⚡ Hibrit (Katman Başı + 10s)</option>
+                        <option value="time_5">⏱️ Zaman: Her 5 Saniyede 1 Kare (Küçük Baskılar)</option>
+                        <option value="time_10">⏱️ Zaman: Her 10 Saniyede 1 Kare</option>
+                        <option value="time_30">⏱️ Zaman: Her 30 Saniyede 1 Kare</option>
+                        <option value="layer_only">📐 Sadece Katman Başı (1 Kare/Katman)</option>
+                    </select>
                 </div>
 
                 <!-- Connection Debugging section -->

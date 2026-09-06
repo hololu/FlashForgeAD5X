@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, Fil
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+from typing import Optional
 import asyncio
 import socket
 import os
@@ -62,10 +63,15 @@ def load_config():
                     last_status["fan_speed"] = data["fan_speed"]
                 if "z_offset" in data:
                     last_status["z_offset"] = data["z_offset"]
+                # Load persistent timelapse preferences
+                if "timelapse_mode" in data:
+                    last_status["timelapse_mode"] = data["timelapse_mode"]
+                if "timelapse_interval" in data:
+                    last_status["timelapse_interval"] = int(data["timelapse_interval"])
         except Exception as e:
             print(f"Error loading config.json: {e}")
 
-def save_config(host, port, serial, check_code):
+def save_config(host, port, serial, check_code, timelapse_mode=None, timelapse_interval=None):
     global PRINTER_HOST, PRINTER_PORT, PRINTER_SERIAL, PRINTER_CHECK_CODE
     PRINTER_HOST = host
     PRINTER_PORT = int(port)
@@ -87,8 +93,15 @@ def save_config(host, port, serial, check_code):
         "check_code": check_code,
         "speed_factor": last_status.get("speed_factor", 100),
         "fan_speed": last_status.get("fan_speed", 0),
-        "z_offset": last_status.get("z_offset", 0.0)
+        "z_offset": last_status.get("z_offset", 0.0),
+        "timelapse_mode": timelapse_mode if timelapse_mode is not None else existing_data.get("timelapse_mode", "hybrid"),
+        "timelapse_interval": int(timelapse_interval) if timelapse_interval is not None else int(existing_data.get("timelapse_interval", 10))
     })
+    
+    if timelapse_mode and 'timelapse_manager' in globals():
+        timelapse_manager.capture_mode = timelapse_mode
+    if timelapse_interval and 'timelapse_manager' in globals():
+        timelapse_manager.capture_interval = int(timelapse_interval)
     
     try:
         with open(CONFIG_FILE, "w") as f:
@@ -505,6 +518,22 @@ async def refresh_once():
         except Exception:
             pass
 
+    # Check detail_dict (HTTP 8898 /detail) if M27 didn't report layer info
+    if cur_layer == 0 and detail_dict.get("printLayer"):
+        try:
+            cur_layer = int(detail_dict.get("printLayer"))
+            total_layer = int(detail_dict.get("targetPrintLayer") or total_layer)
+        except Exception:
+            pass
+
+    unified_layer = f"{cur_layer}/{total_layer}"
+
+    if progress_val == 0 and detail_dict.get("printProgress"):
+        try:
+            progress_val = int(float(detail_dict.get("printProgress")))
+        except Exception:
+            pass
+
     prev_clean_needed = last_status.get("platform_clean_needed", False)
     is_completed_state = False
     
@@ -539,8 +568,10 @@ async def refresh_once():
         "move_mode": parsed_m119.get("move_mode", "UNKNOWN"),
         "is_printing": is_active_printing,
         "current_file": active_current_file,
-        "progress": parsed_m27.get("progress", 0),
-        "layer": parsed_m27.get("layer", "0/0"),
+        "progress": progress_val,
+        "layer": unified_layer,
+        "current_layer": cur_layer,
+        "total_layers": total_layer,
         "temperatures": parsed_m105,
         "endstop": parsed_m119.get("endstop", {}),
         "led": parsed_m119.get("led", "?"),
@@ -1263,7 +1294,9 @@ async def api_upload(
     use_matl_station: bool = True,
     flow_calibration: bool = False,
     first_layer_inspection: bool = False,
-    material_mappings: str = None
+    material_mappings: str = None,
+    time_lapse_mode: Optional[str] = "hybrid",
+    time_lapse_interval: Optional[int] = 10
 ):
     if not PRINTER_SERIAL or not PRINTER_CHECK_CODE:
         return JSONResponse({"ok": False, "error": "Seri Numarası veya LAN Kodu ayarlanmamış"}, status_code=400)
@@ -1355,6 +1388,17 @@ async def api_upload(
 
             clean_name = os.path.basename(filename.replace("\\", "/"))
             if print_now:
+                if 'timelapse_manager' in globals():
+                    timelapse_manager.pending_filename = clean_name
+                    if time_lapse_mode:
+                        timelapse_manager.capture_mode = time_lapse_mode
+                    if time_lapse_interval:
+                        timelapse_manager.capture_interval = int(time_lapse_interval)
+                try:
+                    camera_broadcaster.ensure_started()
+                except Exception:
+                    pass
+
                 # Yazıcı dahili depolamasına (eMMC) dosya yazımının ve önizleme çıkarımının tamamlanması için bekle
                 await asyncio.sleep(1.5)
                 start_success = False
@@ -1460,6 +1504,8 @@ class StartPrintModel(BaseModel):
     flow_calibration: bool = False
     first_layer_inspection: bool = False
     material_mappings: list = None
+    time_lapse_mode: Optional[str] = "hybrid"
+    time_lapse_interval: Optional[int] = 10
 
 
 @app.get("/api/printer/files")
@@ -1486,6 +1532,17 @@ async def api_print_start(params: StartPrintModel):
     clean_name = os.path.basename(params.filename.replace("\\", "/")).strip()
     if not clean_name:
         return JSONResponse({"ok": False, "error": "Dosya adı belirtilmedi"}, status_code=400)
+        
+    if 'timelapse_manager' in globals():
+        timelapse_manager.pending_filename = clean_name
+        if params.time_lapse_mode:
+            timelapse_manager.capture_mode = params.time_lapse_mode
+        if params.time_lapse_interval:
+            timelapse_manager.capture_interval = int(params.time_lapse_interval)
+    try:
+        camera_broadcaster.ensure_started()
+    except Exception:
+        pass
         
     loop = asyncio.get_event_loop()
     start_success = False
@@ -1888,16 +1945,25 @@ class SettingsModel(BaseModel):
     port: int
     serial: str
     check_code: str
+    timelapse_mode: Optional[str] = "hybrid"
+    timelapse_interval: Optional[int] = 10
 
 
 @app.get("/api/settings")
 async def get_settings():
     async with lock:
+        tl_mode = last_status.get("timelapse_mode", "hybrid")
+        tl_interval = last_status.get("timelapse_interval", 10)
+        if 'timelapse_manager' in globals():
+            tl_mode = timelapse_manager.capture_mode or tl_mode
+            tl_interval = timelapse_manager.capture_interval or tl_interval
         return {
             "host": PRINTER_HOST,
             "port": PRINTER_PORT,
             "serial": PRINTER_SERIAL,
             "check_code": PRINTER_CHECK_CODE,
+            "timelapse_mode": tl_mode,
+            "timelapse_interval": tl_interval,
             "tcp_error": last_status.get("error"),
             "ifs_error": last_status.get("filament_info_error")
         }
@@ -1905,7 +1971,17 @@ async def get_settings():
 
 @app.post("/api/settings")
 async def post_settings(settings: SettingsModel):
-    save_config(settings.host, settings.port, settings.serial, settings.check_code)
+    save_config(
+        settings.host,
+        settings.port,
+        settings.serial,
+        settings.check_code,
+        timelapse_mode=settings.timelapse_mode,
+        timelapse_interval=settings.timelapse_interval
+    )
+    if 'timelapse_manager' in globals():
+        timelapse_manager.capture_mode = settings.timelapse_mode or "hybrid"
+        timelapse_manager.capture_interval = int(settings.timelapse_interval or 10)
     try:
         camera_broadcaster.reset()
     except Exception:
@@ -2127,15 +2203,87 @@ class CameraBroadcaster:
                 self.thread.start()
         return q
 
+    def ensure_started(self):
+        """Ensures the background stream worker is actively receiving frames."""
+        if self.thread is None or not self.thread.is_alive():
+            self.stop_event.clear()
+            loop = None
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = self.loop
+            self.thread = threading.Thread(
+                target=self._worker,
+                args=(PRINTER_HOST, loop),
+                daemon=True,
+                name="CameraBroadcasterThread"
+            )
+            self.thread.start()
+
     async def unsubscribe(self, q):
         async with self.lock:
             self.subscribers.discard(q)
-            if not self.subscribers:
+            is_timelapse_active = bool('timelapse_manager' in globals() and timelapse_manager and timelapse_manager.active_session)
+            if not self.subscribers and not is_timelapse_active:
                 self.stop_event.set()
                 self.thread = None
 
 
 camera_broadcaster = CameraBroadcaster()
+
+
+def fetch_camera_snapshot_sync(timeout: float = 3.5) -> bytes:
+    """Fetches a single JPEG frame snapshot from camera broadcaster cache or direct printer stream."""
+    global camera_broadcaster
+    # 1. Use cached broadcaster frame if recent (within 3.0 seconds)
+    if camera_broadcaster and camera_broadcaster.latest_frame and camera_broadcaster.latest_frame_time:
+        age = (datetime.now() - camera_broadcaster.latest_frame_time).total_seconds()
+        if age < 3.0:
+            return camera_broadcaster.latest_frame
+
+    # 2. Try direct ?action=snapshot
+    try:
+        url = f"http://{PRINTER_HOST}:8080/?action=snapshot"
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) FlashForge-Panel/1.0", "Accept": "*/*"}
+        )
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            data = resp.read()
+            if data and len(data) > 1000 and data.startswith(b"\xff\xd8"):
+                if camera_broadcaster:
+                    camera_broadcaster.latest_frame = data
+                    camera_broadcaster.latest_frame_time = datetime.now()
+                return data
+    except Exception:
+        pass
+
+    # 3. Stream 1 frame from ?action=stream
+    try:
+        stream_url = f"http://{PRINTER_HOST}:8080/?action=stream"
+        req = urllib.request.Request(
+            stream_url,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) FlashForge-Panel/1.0", "Accept": "*/*"}
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            buf = bytearray()
+            for _ in range(80):
+                c = resp.read(8192)
+                if not c:
+                    break
+                buf.extend(c)
+                start = buf.find(b"\xff\xd8")
+                if start != -1:
+                    end = buf.find(b"\xff\xd9", start + 2)
+                    if end != -1:
+                        jpg = bytes(buf[start:end+2])
+                        if camera_broadcaster:
+                            camera_broadcaster.latest_frame = jpg
+                            camera_broadcaster.latest_frame_time = datetime.now()
+                        return jpg
+    except Exception as e:
+        print(f"fetch_camera_snapshot_sync fallback error: {e}")
+    return None
 
 
 @app.get("/api/camera/status")
@@ -2187,60 +2335,9 @@ async def api_camera_stream():
 @app.get("/api/camera/snapshot")
 async def api_camera_snapshot():
     """Proxy a single camera frame snapshot from the printer or latest broadcaster cache."""
-    # 1. Use cached frame if recent (within last 3 seconds)
-    if camera_broadcaster.latest_frame and camera_broadcaster.latest_frame_time:
-        age = (datetime.now() - camera_broadcaster.latest_frame_time).total_seconds()
-        if age < 3.0:
-            return Response(
-                content=camera_broadcaster.latest_frame,
-                media_type="image/jpeg",
-                headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
-            )
-
-    camera_url = f"http://{PRINTER_HOST}:8080/?action=snapshot"
-
-    def fetch_snapshot():
-        # Try ?action=snapshot
-        try:
-            req = urllib.request.Request(
-                camera_url,
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) FlashForge-Panel/1.0", "Accept": "*/*"}
-            )
-            with urllib.request.urlopen(req, timeout=3) as resp:
-                data = resp.read()
-                if data and len(data) > 1000 and data.startswith(b"\xff\xd8"):
-                    return data
-        except Exception:
-            pass
-
-        # Fallback: Read 1 frame from ?action=stream
-        try:
-            stream_url = f"http://{PRINTER_HOST}:8080/?action=stream"
-            req = urllib.request.Request(
-                stream_url,
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) FlashForge-Panel/1.0", "Accept": "*/*"}
-            )
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                buf = bytearray()
-                for _ in range(80):
-                    c = resp.read(8192)
-                    if not c:
-                        break
-                    buf.extend(c)
-                    start = buf.find(b"\xff\xd8")
-                    if start != -1:
-                        end = buf.find(b"\xff\xd9", start + 2)
-                        if end != -1:
-                            return bytes(buf[start:end+2])
-        except Exception as e:
-            print(f"Camera snapshot fallback error: {e}")
-        return None
-
     loop = asyncio.get_running_loop()
-    img_bytes = await loop.run_in_executor(None, fetch_snapshot)
+    img_bytes = await loop.run_in_executor(None, fetch_camera_snapshot_sync)
     if img_bytes:
-        camera_broadcaster.latest_frame = img_bytes
-        camera_broadcaster.latest_frame_time = datetime.now()
         return Response(
             content=img_bytes,
             media_type="image/jpeg",
@@ -2267,6 +2364,9 @@ class TimeLapseManager:
         self.last_captured_layer = -1
         self.last_captured_time = 0
         self.recording_enabled = True
+        self.capture_mode = "hybrid"   # "hybrid", "time", "layer"
+        self.capture_interval = 10     # seconds between frames (time/hybrid)
+        self.pending_filename = None
         self._recover_stale_sessions()
 
     def _recover_stale_sessions(self):
@@ -2327,11 +2427,13 @@ class TimeLapseManager:
                     "captured_frames": self.active_session.get("captured_frames", 0),
                     "current_layer": self.last_captured_layer,
                     "total_layers": self.active_session.get("total_layers", 0),
+                    "mode": self.active_session.get("mode", self.capture_mode),
+                    "interval": self.active_session.get("interval", self.capture_interval),
                     "status": "recording"
                 }
             return None
 
-    def start_session(self, filename: str, total_layers: int = 0):
+    def start_session(self, filename: str, total_layers: int = 0, mode: str = None, interval: int = None):
         with self.lock:
             clean_name = os.path.splitext(os.path.basename(filename.replace("\\", "/")))[0]
             clean_name = re.sub(r'[^\w\-_\.]', '_', clean_name).strip("._") or "print"
@@ -2341,6 +2443,9 @@ class TimeLapseManager:
             frames_path = os.path.join(session_path, "frames")
             os.makedirs(frames_path, exist_ok=True)
 
+            chosen_mode = mode or self.capture_mode or "hybrid"
+            chosen_interval = int(interval) if interval is not None else int(self.capture_interval or 10)
+
             self.active_session = {
                 "id": session_id,
                 "filename": filename,
@@ -2349,6 +2454,8 @@ class TimeLapseManager:
                 "total_layers": total_layers,
                 "captured_frames": 0,
                 "status": "recording",
+                "mode": chosen_mode,
+                "interval": chosen_interval,
                 "duration_seconds": 0,
                 "thumbnail": "thumbnail.jpg",
                 "video_file": "timelapse.webp",
@@ -2359,7 +2466,11 @@ class TimeLapseManager:
             self.last_captured_layer = -1
             self.last_captured_time = time.time()
             self._save_metadata(self.active_session)
-            print(f"TimeLapse: Started new session '{session_id}' for file '{filename}'.")
+            print(f"TimeLapse: Started new session '{session_id}' for file '{filename}' (Mode: {chosen_mode}, Interval: {chosen_interval}s).")
+            try:
+                camera_broadcaster.ensure_started()
+            except Exception:
+                pass
 
     def capture_frame(self, frame_bytes: bytes, layer_num: int = 0):
         if not frame_bytes or not self.active_session:
@@ -2501,17 +2612,11 @@ class TimeLapseManager:
         return False
 
     def _fetch_direct_snapshot(self) -> bytes:
-        """Fallback direct snapshot fetch from printer."""
+        """Fallback direct snapshot fetch via fetch_camera_snapshot_sync."""
         try:
-            url = f"http://{PRINTER_HOST}:8080/?action=snapshot"
-            req = urllib.request.Request(url, headers={"User-Agent": "FlashForge-TimeLapse/1.0"})
-            with urllib.request.urlopen(req, timeout=2.0) as resp:
-                data = resp.read()
-                if data and len(data) > 1000:
-                    return data
+            return fetch_camera_snapshot_sync(timeout=3.5)
         except Exception:
-            pass
-        return None
+            return None
 
     def process_status(self, status: dict):
         """Called upon every status poll update to drive automated frame capture."""
@@ -2552,26 +2657,37 @@ class TimeLapseManager:
                 pass
 
         # 1. Start new session if active printing has begun
-        if is_active_printing and current_file and current_file not in ["-", "Boşta", "UNKNOWN"]:
+        if is_active_printing:
+            file_to_record = current_file
+            if not file_to_record or file_to_record in ["-", "Boşta", "UNKNOWN"]:
+                file_to_record = self.pending_filename or f"Baski_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
             if not self.active_session:
-                self.start_session(current_file, total_layers=total_layer)
-            elif self.active_session.get("filename") != current_file:
+                self.start_session(file_to_record, total_layers=total_layer, mode=self.capture_mode, interval=self.capture_interval)
+            elif current_file and current_file not in ["-", "Boşta", "UNKNOWN"] and self.active_session.get("filename") != current_file:
                 # File changed on printer
                 self.finalize_session()
-                self.start_session(current_file, total_layers=total_layer)
+                self.start_session(current_file, total_layers=total_layer, mode=self.capture_mode, interval=self.capture_interval)
 
             # 2. Check if a frame should be captured
             if self.active_session:
                 now = time.time()
                 should_capture = False
-                if cur_layer >= 0 and cur_layer != self.last_captured_layer:
+                mode = self.active_session.get("mode") or self.capture_mode or "hybrid"
+                interval = int(self.active_session.get("interval") or self.capture_interval or 10)
+
+                # Capture first frame quickly after start
+                if self.active_session.get("captured_frames", 0) == 0 and (now - self.last_captured_time) >= 1.0:
                     should_capture = True
-                elif (now - self.last_captured_time) >= 30:
-                    # Time-based fallback for unlayered/vase prints
+                # Layer change trigger (hybrid or layer mode)
+                elif mode in ["hybrid", "layer"] and cur_layer > 0 and cur_layer != self.last_captured_layer:
+                    should_capture = True
+                # Time interval trigger (hybrid or time mode)
+                elif mode in ["hybrid", "time"] and (now - self.last_captured_time) >= interval:
                     should_capture = True
 
                 if should_capture:
-                    frame = camera_broadcaster.latest_frame or self._fetch_direct_snapshot()
+                    frame = (camera_broadcaster.latest_frame if camera_broadcaster else None) or self._fetch_direct_snapshot()
                     if frame:
                         self.capture_frame(frame, layer_num=cur_layer)
 
@@ -2583,6 +2699,50 @@ class TimeLapseManager:
 
 
 timelapse_manager = TimeLapseManager(TIMELAPSE_DIR)
+if "timelapse_mode" in last_status:
+    timelapse_manager.capture_mode = last_status["timelapse_mode"]
+if "timelapse_interval" in last_status:
+    timelapse_manager.capture_interval = int(last_status["timelapse_interval"])
+
+
+class TimeLapseConfigModel(BaseModel):
+    mode: Optional[str] = "hybrid"
+    interval: Optional[int] = 10
+    recording_enabled: Optional[bool] = True
+
+
+@app.get("/api/timelapse/config")
+async def api_timelapse_get_config():
+    """Returns current timelapse capture configuration."""
+    return {
+        "ok": True,
+        "mode": timelapse_manager.capture_mode,
+        "interval": timelapse_manager.capture_interval,
+        "recording_enabled": timelapse_manager.recording_enabled
+    }
+
+
+@app.post("/api/timelapse/config")
+async def api_timelapse_post_config(config: TimeLapseConfigModel):
+    """Updates timelapse capture configuration."""
+    if config.mode:
+        timelapse_manager.capture_mode = config.mode
+    if config.interval is not None:
+        timelapse_manager.capture_interval = int(config.interval)
+    if config.recording_enabled is not None:
+        timelapse_manager.recording_enabled = config.recording_enabled
+    try:
+        save_config(PRINTER_HOST, PRINTER_PORT, PRINTER_SERIAL, PRINTER_CHECK_CODE,
+                    timelapse_mode=timelapse_manager.capture_mode,
+                    timelapse_interval=timelapse_manager.capture_interval)
+    except Exception as e:
+        print(f"Error persisting timelapse config: {e}")
+    return {
+        "ok": True,
+        "mode": timelapse_manager.capture_mode,
+        "interval": timelapse_manager.capture_interval,
+        "recording_enabled": timelapse_manager.recording_enabled
+    }
 
 
 @app.get("/api/timelapse/list")

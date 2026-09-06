@@ -80,7 +80,7 @@ Mevcut görsel izleme kartı içerisine entegre edilen modern 3D görselleştiri
 * **🌈 Dinamik Katman Renklendirmesi:** Katman yüksekliğine göre HSL renk geçişli (Cyan ➔ İndigo ➔ Menekşe ➔ Amber) ekstrüzyon çizgileri ve açılıp kapatılabilen yarı saydam boşta hareket (travel) hatları.
 * **🎮 360° Serbest Kamera & Hazır Açılar:** Fare ile serbest döndürme (Orbit), kaydırma (Pan), yakınlaştırma (Zoom) ve tek tıkla İzometrik (3D), Üst (Top), Ön (Front) bakış açıları veya modeli ortalama.
 * **🎚️ Katman Kaydırıcı (Layer Slider) & Animasyon:** 1. katmandan son katmana kadar kaydırma, katman adım butonları (◀ / ▶) ve otomatik katman katman yazdırma simülasyonu (▶ Oynat).
-* **🔴 Canlı Yazıcı Katman Senkronizasyonu:** Yazıcı aktif baskı yaparken gelen katman verisiyle (`M27` katman telemetrisi) otomatik eşzamanlanarak nozulun ulaştığı yüksekliği canlı gösterir.
+* **🔴 Canlı Yazıcı Katman Senkronizasyonu:** Yazıcı aktif baskı yaparken gelen katman verisiyle (`M27` katman telemetrisi ve `/detail` API) otomatik eşzamanlanır; baskı başladığında bitmiş model yerine 1. katmandan başlayarak nozulun ulaştığı yüksekliği canlı ilerletir. Model dosyasını dilediğiniz an açtığınızda baskının o anki canlı katmanına otomatik kilitlenir.
 * **📁 Dosya Desteği & Sürükle-Bırak:** Bilgisayarınızdan herhangi bir `.gcode` veya `.3mf` dosyasını doğrudan ekrana sürükleyip bırakabilir, LAN yükleme kutusundan seçebilir veya dahili 20mm kalibrasyon test küpünü tek tıkla yükleyebilirsiniz.
 * **💾 Sunucu Önbelleği (G-Code Cache):** Web paneli üzerinden yazıcıya gönderilen G-Code ve 3MF dosyaları otomatik önbelleğe alınarak aktif baskı başladığında tek tıkla 3D ekrana aktarılır.
 * **⛶ Tam Ekran Modu:** Tek tıkla tüm ekranı kaplayan sinematik 3D modelleme alanı.
@@ -184,14 +184,18 @@ Yazıcının dahili flash belleğinde kayıtlı tüm modelleri yönetmek için t
 
 ---
 
-### 11. 🎬 Otomatik Time-Lapse Video Kayıt, Galeri ve Katman Oynatıcısı (Automated Time-Lapse System)
-Baskılarınızın hızlandırılmış sinematik kayıtlarını hiçbir harici donanım veya OctoPrint eklentisine ihtiyaç duymadan oluşturur:
-* **📸 Katman Senkronize Kare Yakalama (`TimeLapseManager`):** `M27` katman telemetrisi dinlenerek her yeni katmana geçildiğinde kamera akışından otomatik olarak yüksek çözünürlüklü JPEG kare yakalanır. Katmansız veya vazo modundaki baskılarda ise akıllı zamanlayıcı devreye girer.
-* **🎞️ Çoklu Format Derleme (MP4 & WebP):** Baskı tamamlandığında sistemde `ffmpeg` mevcutsa H.264 MP4 video; kurulu değilse PIL (Pillow) motoruyla sıfır harici bağımlılıkla yüksek kaliteli hareketli **WebP Time-Lapse** videosu otomatik olarak derlenir.
-* **🔄 Kesinti ve Oturum Kurtarma:** Panel veya servis yeniden başlatılsa bile yarım kalan kare dizinleri taranır, geçerli kareler kurtarılır ve kullanıcı galerisine otomatik eklenir.
+### 11. 🎬 Otomatik Time-Lapse Video & Kare Albümü (Panel Dâhili Çözümü)
+FlashForge Adventurer 5M / AD5X yazıcılarının dâhili `mjpg-streamer` port 8080 servisi tek istemci (single-client) kısıtlamasına sahip olup doğrudan anlık snapshot isteklerini (`/?action=snapshot`) desteklemez. Web panelimiz, dâhili `CameraBroadcaster` motoru üzerinden bellek içi akış karelerini (`\xff\xd8` - `\xff\xd9`) sıfır gecikmeyle yakalayarak harici eklenti veya donanım gerektirmeden tam otomatik Time-Lapse oluşturur:
+* **⚡ Hibrit Çekim Modu (Katman Başı + 10s - Önerilen):** Hem her yeni katmanda bir kare yakalar hem de aradan 10 saniye geçtiğinde ek kareler ekler. Böylece hem büyük modellerde katman ilerlemesi hem de küçük baskılarda akıcı video elde edilir.
+* **⏱️ Zaman / Saniye Bazlı Çekim (5s, 10s, 30s):** Özellikle küçük boyutlu, hızlı biten veya tek katmanlı/vazo modundaki baskılarda 1 kare/katman yetersiz kaldığından belirlenen saniye aralığında (örn. her 5 saniyede 1 kare) düzenli fotoğraf çeker.
+* **📐 Sadece Katman Bazlı Çekim:** Klasik 1 katman = 1 kare modu.
+* **🎛️ Kullanıcı Kontrolü:** Çekim modunu "Plakayı Yazdır" penceresinden baskı bazında veya "⚙️ Ayarlar" penceresinden genel varsayılan olarak belirleyebilirsiniz.
+* **🎞️ Çift Format Otomatik Derleme (MP4 & WebP):** Baskı tamamlandığında sistemde `ffmpeg` mevcutsa H.264 MP4 video; kurulu değilse Pillow motoruyla sıfır harici bağımlılıkla yüksek kaliteli hareketli **WebP Time-Lapse** videosu otomatik derlenir.
+* **🔄 Kesinti ve Oturum Kurtarma:** Panel veya servis yeniden başlatılsa dahi dosya adı belirsiz olsa bile oturum düşmez, geçerli kareler kurtarılır ve kullanıcı galerisine eklenir.
 * **🎚️ Katman Katman İnteraktif İnceleme (Scrubber Player):** Tarayıcı üzerinden katman kaydırma çubuğu ile baskının istediğiniz anına gidebilir, katman katman nozul hareketini geri veya ileri sarabilirsiniz.
 * **📥 İndirme ve Yönetim API'leri:**
-  * `GET /api/timelapse/list` ➔ Kayıtlı oturumlar ve aktif baskı kare sayısı.
+  * `GET /api/timelapse/list` ➔ Kayıtlı oturumlar ve aktif baskı durumu.
+  * `GET /api/timelapse/config` & `POST /api/timelapse/config` ➔ Çekim modu ve aralık yapılandırması.
   * `GET /api/timelapse/video/{session_id}` ➔ Video akışı veya doğrudan indirme (`?download=true`).
   * `GET /api/timelapse/thumbnail/{session_id}` ➔ Oturum kapak fotoğrafı.
   * `GET /api/timelapse/frames/{session_id}` ➔ Katman kareleri dizisi.
