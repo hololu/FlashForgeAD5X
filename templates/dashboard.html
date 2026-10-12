@@ -3714,6 +3714,7 @@
                 detailList.forEach(d => {
                     if (d.gcodeFileName) detailMap[d.gcodeFileName] = d;
                 });
+                window.lastPrinterFilesDetailMap = detailMap;
 
                 let html = '';
                 gcodeList.forEach((fname) => {
@@ -3753,11 +3754,11 @@
                                 </div>
                             </div>
                             <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
-                                <button type="button" class="btn btn-primary btn-pulse-glow" onclick="startPrintFromPrinter('${safeFnameAttr}')" style="padding: 6px 14px; font-size: 12px; display: inline-flex; align-items: center; gap: 5px;">
+                                <button type="button" class="btn btn-primary btn-pulse-glow" onclick="openPrintModalForPrinterFile('${safeFnameAttr}')" style="padding: 6px 14px; font-size: 12px; display: inline-flex; align-items: center; gap: 5px;" title="Baskı Öncesi Ayarları ve Filament Eşleştirmesi ile Başlat">
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                         <polygon points="5 3 19 12 5 21 5 3"></polygon>
                                     </svg>
-                                    Baskıyı Başlat
+                                    Yazdır (Ayarlar)
                                 </button>
                             </div>
                         </div>
@@ -3770,45 +3771,64 @@
             }
         }
 
-        async function startPrintFromPrinter(encodedFilename) {
+        let printerStoredFileName = null;
+
+        async function openPrintModalForPrinterFile(encodedFilename) {
             const filename = decodeURIComponent(encodedFilename);
-            if (!confirm(`'${filename}' baskısı yazıcıda başlatılsın mı?`)) return;
+            printerStoredFileName = filename;
+            selectedFile = null;
+            pendingUploadFile = null;
 
-            // Check if platform clean needed
-            const isCleanNeeded = Boolean(lastStatusData?.platform_clean_needed) || Boolean(lastStatusData?.is_completed);
-            if (isCleanNeeded) {
-                try {
-                    await fetch('/api/clear_platform', { method: 'POST' });
-                    await new Promise(r => setTimeout(r, 1000));
-                } catch(e) {
-                    console.error('Auto clear error:', e);
-                }
+            closePrinterFilesModal();
+
+            const modal = document.getElementById('printPlateModal');
+            if (!modal) return;
+
+            document.getElementById('modalFileName').textContent = filename;
+            
+            const detail = (window.lastPrinterFilesDetailMap && window.lastPrinterFilesDetailMap[filename]) || {};
+            const printTimeSec = detail.printingTime || 0;
+            let detailTxt = 'Yazıcı Dahili Depolaması';
+            if (printTimeSec > 0) {
+                const hrs = Math.floor(printTimeSec / 3600);
+                const mins = Math.round((printTimeSec % 3600) / 60);
+                detailTxt += hrs > 0 ? ` • ⏱️ ${hrs} sa ${mins} dk` : ` • ⏱️ ${mins} dk`;
+            }
+            if (detail.totalFilamentWeight) {
+                detailTxt += ` • ⚖️ ${Number(detail.totalFilamentWeight).toFixed(1)} g`;
+            }
+            document.getElementById('modalFileSize').textContent = detailTxt;
+            document.getElementById('modalUploadProgressWrap').style.display = 'none';
+            document.getElementById('modalUploadResult').style.display = 'none';
+            document.getElementById('btnModalStartPrint').disabled = false;
+            document.getElementById('btnModalCancel').disabled = false;
+
+            // Check if platform clean was needed
+            const cleanAlert = document.getElementById('modalPlatformCleanAlert');
+            const isCleanNeeded = Boolean(lastStatusData?.platform_clean_needed) || Boolean(lastStatusData?.is_completed) || (lastStatusData?.machine_status === 'BUILDING_COMPLETED');
+            if (cleanAlert) {
+                cleanAlert.style.display = isCleanNeeded ? 'block' : 'none';
             }
 
-            try {
-                const resp = await fetch('/api/print/start', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        filename: filename,
-                        leveling_before_print: true,
-                        time_lapse_video: true,
-                        use_matl_station: true,
-                        flow_calibration: false,
-                        first_layer_inspection: false
-                    })
-                });
-                const res = await resp.json();
-                if (resp.ok && res.ok) {
-                    alert('🎉 ' + (res.message || 'Baskı başarıyla başlatıldı!'));
-                    closePrinterFilesModal();
-                    setTimeout(load, 1200);
-                } else {
-                    alert('Hata: ' + (res.error || 'Baskı başlatılamadı.'));
-                }
-            } catch(e) {
-                alert('Bağlantı hatası: ' + e.message);
+            modal.style.display = 'flex';
+
+            // Populate tools mapping from printer's gcodeToolDatas or fallback
+            const tools = detail.gcodeToolDatas || [];
+            if (tools.length > 0) {
+                currentModelTools = tools.map((t, idx) => ({
+                    tool_id: typeof t.toolId !== 'undefined' ? t.toolId : idx,
+                    material: t.materialName || 'PLA',
+                    color: t.materialColor || '#161616',
+                    recommended_slot: typeof t.slotId !== 'undefined' ? t.slotId : (idx + 1)
+                }));
+                renderMaterialMappings(currentModelTools, lastStatusData?.filament_info);
+            } else {
+                renderMaterialMappingsFallback();
             }
+        }
+
+        async function startPrintFromPrinter(encodedFilename) {
+            await openPrintModalForPrinterFile(encodedFilename);
         }
 
         let lastActiveSlots = [];
@@ -4063,6 +4083,11 @@
         }
 
         async function executePrintPlateUpload() {
+            if (printerStoredFileName) {
+                await startUploadedPrintDirectly(encodeURIComponent(printerStoredFileName));
+                return;
+            }
+
             const fileToSend = selectedFile || pendingUploadFile;
             if (!fileToSend) return;
 

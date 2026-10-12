@@ -80,15 +80,17 @@ Mevcut görsel izleme kartı içerisine entegre edilen modern 3D görselleştiri
 * **🌈 Dinamik Katman Renklendirmesi:** Katman yüksekliğine göre HSL renk geçişli (Cyan ➔ İndigo ➔ Menekşe ➔ Amber) ekstrüzyon çizgileri ve açılıp kapatılabilen yarı saydam boşta hareket (travel) hatları.
 * **🎮 360° Serbest Kamera & Hazır Açılar:** Fare ile serbest döndürme (Orbit), kaydırma (Pan), yakınlaştırma (Zoom) ve tek tıkla İzometrik (3D), Üst (Top), Ön (Front) bakış açıları veya modeli ortalama.
 * **🎚️ Katman Kaydırıcı (Layer Slider) & Animasyon:** 1. katmandan son katmana kadar kaydırma, katman adım butonları (◀ / ▶) ve otomatik katman katman yazdırma simülasyonu (▶ Oynat).
-* **🔴 Canlı Yazıcı Katman Senkronizasyonu:** Yazıcı aktif baskı yaparken gelen katman verisiyle (`M27` katman telemetrisi ve `/detail` API) otomatik eşzamanlanır; baskı başladığında bitmiş model yerine 1. katmandan başlayarak nozulun ulaştığı yüksekliği canlı ilerletir. Model dosyasını dilediğiniz an açtığınızda baskının o anki canlı katmanına otomatik kilitlenir.
-* **📁 Dosya Desteği & Sürükle-Bırak:** Bilgisayarınızdan herhangi bir `.gcode` veya `.3mf` dosyasını doğrudan ekrana sürükleyip bırakabilir, LAN yükleme kutusundan seçebilir veya dahili 20mm kalibrasyon test küpünü tek tıkla yükleyebilirsiniz.
-* **💾 Sunucu Önbelleği (G-Code Cache):** Web paneli üzerinden yazıcıya gönderilen G-Code ve 3MF dosyaları otomatik önbelleğe alınarak aktif baskı başladığında tek tıkla 3D ekrana aktarılır.
+* **🔴 Canlı Yazıcı Katman Senkronizasyonu & Akıllı Proje Değişimi:** Yazıcı aktif baskı yaparken gelen katman verisiyle (`M27` katman telemetrisi ve `/detail` API) otomatik eşzamanlanır; baskı başladığında bitmiş model yerine 1. katmandan başlayarak nozulun ulaştığı yüksekliği canlı ilerletir. Yeni bir projeye geçildiğinde eski model kalıntısı ekranda kalmaz, otomatik temizlenir (`closeModel`); önbellekteki yeni dosya (uzantı duyarsız fuzzy eşleme ile `.gcode`, `.3mf`, `.gx`) anında yüklenir veya kullanıcıdan dosyayı sürüklemesi istenir.
+* **📁 Dosya Desteği & Sürükle-Bırak:** Bilgisayarınızdan herhangi bir `.gcode`, `.3mf` veya `.gx` dosyasını doğrudan ekrana sürükleyip bırakabilir, LAN yükleme kutusundan seçebilir veya dahili 20mm kalibrasyon test küpünü tek tıkla yükleyebilirsiniz.
+* **💾 Akıllı Sunucu Önbelleği (G-Code Cache):** Web paneli üzerinden yazıcıya gönderilen modeller otomatik önbelleğe alınarak aktif baskı başladığında tek tıkla 3D ekrana aktarılır.
 * **⛶ Tam Ekran Modu:** Tek tıkla tüm ekranı kaplayan sinematik 3D modelleme alanı.
 
 ---
 
-### 3. 🛠️ Sistem & Servis Yönetimi (Settings Modal)
+### 3. 🛠️ Sistem, Servis Yönetimi & Ağda Otomatik Yazıcı Keşfi (Settings & Discovery)
 Web arayüzünün sağ üstündeki **⚙️ Ayarlar** penceresi ve **Uçbirim (G-Code Konsolu)** üzerinden kritik operasyonlar tek tıkla yürütülür:
+* **🔍 Ağda Yazıcı Keşfi (`/api/discover`):** DHCP üzerinden IP adresi sürekli değişen yazıcıları elle arama zahmetine son! **"🔍 Ağda Yazıcı Ara"** butonuna tıklandığında yerel ağ (subnet) ve UDP yayınları taranarak ağdaki tüm FlashForge Adventurer 5M / AD5X yazıcıları (IP, Port, Model, Seri No) saniyeler içinde tespit edilir ve tek tıkla seçilerek ayarlar güncellenir.
+* **📱 Responsive & Kayan Liste Tasarımı:** Keşif penceresi ve ayarlar modalı, yazıcı listesi ne kadar uzarsa uzasın "Kaydet" ve "Kapat" butonlarının ekran altına taşmasını engelleyen kaydırılabilir dinamik gövde (flexbox scroll) mimarisine sahiptir.
 * **🔄 Servisleri Yeniden Başlat (`/api/service/restart`):** Panel arka plan sorgulayıcısını (`watch_loop`), soket havuzunu ve kamera yayıncısını temizleyip baştan başlatır.
 * **📷 Kamerayı Sıfırla (`/api/camera/restart`):** Askıda kalan kamera istemci soketlerini kapatır ve yeni bağlantı açar.
 * **🔓 Oturumu Serbest Bırak (`/api/printer/unlock` - `~M602`):** FlashForge yazıcısı kilitli bir oturumda takılı kaldığında soket kilidini açar.
@@ -150,48 +152,40 @@ Flash Studio Desktop (`FlashNetwork.dll`) ve FlashForge AD5X firmware haberleşm
 * **Otomatik Platform Kurtarma:** 2. denemede yazıcı hâlâ meşgulse, arka planda platform kilitlenme durumunu sıfırlamak için `_clear_platform_sync` komutu otomatik tetiklenir.
 * **🛡️ Çok Aşamalı TCP Fallback:** HTTP servisinin yanıt vermediği veya kilitlendiği durumlarda TCP Port 8899 üzerinden `~M23 0:/user/{fileName}` ve `~M24` çiftli komut zinciri otomatik devreye girerek baskının kesin olarak başlamasını sağlar.
 * **▶️ Yazıcıdaki Dosyayı Tek Tıkla Başlatma (`can_start_stored`):** Eğer dosya başarıyla yüklenmiş fakat yazıcı o anda meşgul olduğu için baskı başlatılamamışsa, kullanıcıya tekrar yükleme beklemeden modal penceresinden tek tıkla **"▶️ Yazıcıdaki Dosyayı Başlat"** ve **"🧹 Platformu Temizle"** aksiyonları sunulur.
-* **JSON Baskı Başlatma Şeması:**
-  ```json
-  {
-    "serialNumber": "SNMQQF9301246",
-    "checkCode": "dd89422a",
-    "fileName": "model_plate_1.3mf",
-    "levelingBeforePrint": true,
-    "flowCalibration": false,
-    "firstLayerInspection": false,
-    "timeLapseVideo": true,
-    "useMatlStation": true,
-    "gcodeToolCnt": 2,
-    "materialMappings": [
-      {
-        "toolId": 0,
-        "slotId": 3,
-        "materialName": "PLA",
-        "toolMaterialColor": "#FFFFFF",
-        "slotMaterialColor": "#FFFFFF"
-      }
-    ]
-  }
-  ```
 
 ---
 
-### 10. 📁 Yazıcı Hafızasındaki Dosyalar & Doğrudan Baskı Başlatma ("Yazıcıdaki Dosyalar" Modal)
-Yazıcının dahili flash belleğinde kayıtlı tüm modelleri yönetmek için tam teşekküllü arayüz ve API:
+### 10. 📁 Yazıcı Hafızasındaki Dosyalar & Baskı Öncesi Ayarlar Ekranı ("Yazıcıdaki Dosyalar" Modal)
+Yazıcının dahili flash belleğinde kayıtlı tüm modelleri yönetmek için tam teşekküllü arayüz ve parametreli baskı akışı:
 * **📋 Dahili Dosya Listesi (`GET /api/printer/files`):** Yazıcının `POST http://{IP}:8898/gcodeList` servisi sorgulanarak hafızadaki tüm `.3mf` ve `.gcode` dosyaları listelenir.
 * **📊 Zengin Baskı Detayları:** Her dosya için yazıcının kendi hesapladığı toplam filament ağırlığı (`gram`), tahmini baskı süresi (`saat / dakika`), kullanılan tool sayısı ve renk rozetleri gösterilir.
-* **🚀 Tek Tıkla Yeniden Yazdırma (`POST /api/print/start`):** Önceden gönderilmiş veya yazıcı hafızasında bulunan bir dosyayı bilgisayarınızdan tekrar yüklemekle vakit kaybetmeden doğrudan **"Baskıyı Başlat"** butonuna basarak anında üretime alabilirsiniz.
+* **🎛️ Parametreli Yazdırma Ekranı ("Yazdır (Ayarlar)"):** Dosyaya basıldığında doğrudan kontrolsüz baskı başlamaz! **"Plakayı Yazdır - Baskı Öncesi Ayarları"** modalı açılır; buradan:
+  * Modelde tanımlı filament kanalları (T0, T1...) istenen IFS yuvalarıyla (Slot 1-4) eşleştirilebilir,
+  * Otomatik Yatak Seviyeleme (`levelingBeforePrint`) açılıp kapatılabilir,
+  * Time-Lapse Hızlandırılmış Video Kaydı tercihi ayarlanabilir,
+  * Platformun temiz olup olmadığı kontrol edilerek güvenle **"Plakayı Yazdır ve Başlat"** komutu verilebilir.
 
 ---
 
-### 11. 🎬 Otomatik Time-Lapse Video & Kare Albümü (Panel Dâhili Çözümü)
+### 11. 🎬 Otomatik Time-Lapse Motoru, Yaşam Döngüsü & Güçlü Dosya Yönetimi
 FlashForge Adventurer 5M / AD5X yazıcılarının dâhili `mjpg-streamer` port 8080 servisi tek istemci (single-client) kısıtlamasına sahip olup doğrudan anlık snapshot isteklerini (`/?action=snapshot`) desteklemez. Web panelimiz, dâhili `CameraBroadcaster` motoru üzerinden bellek içi akış karelerini (`\xff\xd8` - `\xff\xd9`) sıfır gecikmeyle yakalayarak harici eklenti veya donanım gerektirmeden tam otomatik Time-Lapse oluşturur:
-* **⚡ Hibrit Çekim Modu (Katman Başı + 10s - Önerilen):** Hem her yeni katmanda bir kare yakalar hem de aradan 10 saniye geçtiğinde ek kareler ekler. Böylece hem büyük modellerde katman ilerlemesi hem de küçük baskılarda akıcı video elde edilir.
+
+#### ⏱️ Time-Lapse Baskı Yaşam Döngüsü (Ne Zaman Başlar?):
+* **Baskı Tetiklendiği Anda Başlar:** Yazıcı `BUILDING`, `PREHEAT`, `HEATING` veya `BED_LEVELING` durumuna girdiği ilk saniyede Time-Lapse oturumu (`timelapse_recordings/session_{timestamp}_{dosya}`) anında oluşturulur.
+* **1. Saniye İlk Kare Güvencesi:** İlk kare baskının 1. saniyesinde otomatik kaydedilir. Böylece çok hızlı iptal edilen baskılarda dahi sıfır kareli boş oturum oluşmaz.
+* **Katman & Zaman Eşzamanlaması:** Nozul hareket etmeye başladıkça belirlenen çekim moduna göre kareler kesintisiz toplanır.
+* **Baskı Bittiğinde Otomatik Derleme:** Baskı tamamlandığında oturum derlenir ve WebP/MP4 videosu galeriye eklenir.
+
+#### 🎛️ Çekim Modları:
+* **⚡ Hibrit Çekim Modu (Katman Başı + 10s - Önerilen):** Hem her yeni katmanda bir kare yakalar hem de katman arası 10 saniye geçtiğinde ek kareler ekler. Böylece hem büyük modellerde katman ilerlemesi hem de küçük baskılarda akıcı video elde edilir.
 * **⏱️ Zaman / Saniye Bazlı Çekim (5s, 10s, 30s):** Özellikle küçük boyutlu, hızlı biten veya tek katmanlı/vazo modundaki baskılarda 1 kare/katman yetersiz kaldığından belirlenen saniye aralığında (örn. her 5 saniyede 1 kare) düzenli fotoğraf çeker.
 * **📐 Sadece Katman Bazlı Çekim:** Klasik 1 katman = 1 kare modu.
-* **🎛️ Kullanıcı Kontrolü:** Çekim modunu "Plakayı Yazdır" penceresinden baskı bazında veya "⚙️ Ayarlar" penceresinden genel varsayılan olarak belirleyebilirsiniz.
-* **🎞️ Çift Format Otomatik Derleme (MP4 & WebP):** Baskı tamamlandığında sistemde `ffmpeg` mevcutsa H.264 MP4 video; kurulu değilse Pillow motoruyla sıfır harici bağımlılıkla yüksek kaliteli hareketli **WebP Time-Lapse** videosu otomatik derlenir.
-* **🔄 Kesinti ve Oturum Kurtarma:** Panel veya servis yeniden başlatılsa dahi dosya adı belirsiz olsa bile oturum düşmez, geçerli kareler kurtarılır ve kullanıcı galerisine eklenir.
+
+#### 🎞️ Video Derleme ve Güçlü Silme Mimarisi:
+* **Çift Format Derleme (MP4 & WebP):** Sistemde `ffmpeg` mevcutsa H.264 MP4 video; kurulu değilse Pillow motoruyla sıfır harici bağımlılıkla yüksek kaliteli hareketli **WebP Time-Lapse** videosu otomatik derlenir.
+* **🗑️ Güçlü & Anında Silme Mekanizması:** Silme işleminde dosya kilitleri, asılı okuyucu handle'ları veya Linux izin (`chmod/sudo`) engelleri aşılır:
+  * Oturum silindiği anda `.deleted_sessions.json` kara listesine alınarak arayüzden saniyesinde kaybolur.
+  * Klasör arka planda güvenle kaldırılır; kilitli ise `.trash_...` dizinine taşınarak temizlenir.
 * **🎚️ Katman Katman İnteraktif İnceleme (Scrubber Player):** Tarayıcı üzerinden katman kaydırma çubuğu ile baskının istediğiniz anına gidebilir, katman katman nozul hareketini geri veya ileri sarabilirsiniz.
 * **📥 İndirme ve Yönetim API'leri:**
   * `GET /api/timelapse/list` ➔ Kayıtlı oturumlar ve aktif baskı durumu.
@@ -199,7 +193,7 @@ FlashForge Adventurer 5M / AD5X yazıcılarının dâhili `mjpg-streamer` port 8
   * `GET /api/timelapse/video/{session_id}` ➔ Video akışı veya doğrudan indirme (`?download=true`).
   * `GET /api/timelapse/thumbnail/{session_id}` ➔ Oturum kapak fotoğrafı.
   * `GET /api/timelapse/frames/{session_id}` ➔ Katman kareleri dizisi.
-  * `DELETE /api/timelapse/{session_id}` ➔ Eski kayıtları silme.
+  * `DELETE /api/timelapse/{session_id}` ➔ Kaydı kalıcı olarak silme.
 
 ---
 
@@ -290,9 +284,12 @@ Web Dashboard backend'i (FastAPI), harici otomasyonlar ve üçüncü taraf istem
 | `/api/upload` | `POST` | G-Code/3MF dosyasını yazıcıya yükleme, IFS slot eşlemeleriyle baskıyı başlatma |
 | `/api/printer/files` | `GET` | Yazıcının dahili flash hafızasındaki kayıtlı dosyaları, gramaj ve süreleri listeleme |
 | `/api/print/start` | `POST` | Yazıcı hafızasındaki bir dosyayı doğrudan yazdırmaya başlatma |
+| `/api/discover` | `GET` | Yerel ağdaki (subnet/UDP) FlashForge yazıcıları otomatik keşfetme |
+| `/api/gcode/current` | `GET` | Aktif baskının önbellekteki 3D G-Code model verisini alma |
 | `/api/timelapse/list` | `GET` | Kayıtlı time-lapse oturumları ve aktif kayıt durumunu listeleme |
 | `/api/timelapse/video/{id}` | `GET` | Derlenmiş MP4 / WebP time-lapse videosunu izleme veya indirme (`?download=true`) |
 | `/api/timelapse/frames/{id}` | `GET` | İnteraktif scrubber için katman kareleri URL listesi |
+| `/api/timelapse/{id}` | `DELETE` | Time-lapse oturumunu ve video dosyalarını kalıcı olarak silme |
 | `/api/camera/stream` | `GET` | Çoklu istemci destekli MJPEG kamera proxy yayını |
 | `/api/camera/snapshot` | `GET` | Tek kare anlık kamera görüntüsü (JPEG) |
 | `/api/settings` | `GET / POST` | Sunucu IP, Port, Seri No ve LAN kodu yapılandırması |
