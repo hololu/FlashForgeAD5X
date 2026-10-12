@@ -17,6 +17,8 @@ import socket
 import os
 import json
 import urllib.request
+import urllib.parse
+import stat
 import threading
 from collections import deque
 from datetime import datetime
@@ -32,7 +34,7 @@ from PIL import Image
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 
-PRINTER_HOST = "192.168.1.14"
+PRINTER_HOST = "192.168.1.19"
 PRINTER_PORT = 8899
 RECONNECT_DELAY = 3.0
 WATCH_INTERVAL = 2.0
@@ -41,7 +43,7 @@ PRINTER_CHECK_CODE = "dd89422a"
 
 def load_config():
     global PRINTER_HOST, PRINTER_PORT, PRINTER_SERIAL, PRINTER_CHECK_CODE, RECONNECT_DELAY, WATCH_INTERVAL
-    PRINTER_HOST = os.getenv("FLASHFORGE_HOST", "192.168.1.14")
+    PRINTER_HOST = os.getenv("FLASHFORGE_HOST", "192.168.1.19")
     PRINTER_PORT = int(os.getenv("FLASHFORGE_PORT", "8899"))
     RECONNECT_DELAY = float(os.getenv("FLASHFORGE_RECONNECT_DELAY", "3"))
     WATCH_INTERVAL = float(os.getenv("FLASHFORGE_WATCH_INTERVAL", "2"))
@@ -129,6 +131,126 @@ def save_tuning_config():
             json.dump(existing_data, f, indent=4)
     except Exception as e:
         print(f"Error saving tuning config to config.json: {e}")
+
+
+def format_bytes(size: int) -> str:
+    """Formats file size into human-readable string (KB, MB)."""
+    if not size or size <= 0:
+        return "0 B"
+    num = float(size)
+    for unit in ["B", "KB", "MB", "GB"]:
+        if num < 1024.0:
+            return f"{num:.1f} {unit}"
+        num /= 1024.0
+    return f"{num:.1f} TB"
+
+
+def get_local_ip_subnets() -> list:
+    """Detects active IPv4 subnets from system network interfaces."""
+    subnets = set()
+    try:
+        hostname = socket.gethostname()
+        for ip in socket.gethostbyname_ex(hostname)[2]:
+            if not ip.startswith("127.") and not ip.startswith("169.254."):
+                parts = ip.split(".")
+                if len(parts) == 4:
+                    subnets.add(f"{parts[0]}.{parts[1]}.{parts[2]}")
+    except Exception:
+        pass
+
+    # Also include the subnet of configured PRINTER_HOST
+    if PRINTER_HOST:
+        parts = PRINTER_HOST.split(".")
+        if len(parts) == 4 and not PRINTER_HOST.startswith("127."):
+            subnets.add(f"{parts[0]}.{parts[1]}.{parts[2]}")
+
+    if not subnets:
+        subnets.add("192.168.1")
+    return sorted(list(subnets))
+
+
+async def probe_printer_ip(ip: str, timeout: float = 0.8) -> Optional[dict]:
+    """Probes an IP for FlashForge printer service (port 8899)."""
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(ip, PRINTER_PORT),
+            timeout=timeout
+        )
+    except Exception:
+        return None
+
+    info = {
+        "ip": ip,
+        "port": PRINTER_PORT,
+        "machine_type": "FlashForge 3D Printer",
+        "machine_name": "",
+        "serial": "",
+        "firmware": "",
+        "status": "ONLINE",
+        "current_file": "",
+        "mac": ""
+    }
+
+    try:
+        # Query M115 (Machine info)
+        writer.write(b"~M115\r\n")
+        await writer.drain()
+        data_m115 = await asyncio.wait_for(reader.read(2048), timeout=1.2)
+        text_m115 = data_m115.decode("utf-8", errors="ignore")
+        for line in text_m115.splitlines():
+            line = line.strip()
+            if line.startswith("Machine Type:"):
+                info["machine_type"] = line.split(":", 1)[1].strip()
+            elif line.startswith("Machine Name:"):
+                info["machine_name"] = line.split(":", 1)[1].strip()
+            elif line.startswith("Firmware:"):
+                info["firmware"] = line.split(":", 1)[1].strip()
+            elif line.startswith("SN:"):
+                info["serial"] = line.split(":", 1)[1].strip()
+            elif line.startswith("Mac Address:"):
+                info["mac"] = line.split(":", 1)[1].strip()
+
+        # Query M119 (Status & file)
+        writer.write(b"~M119\r\n")
+        await writer.drain()
+        data_m119 = await asyncio.wait_for(reader.read(2048), timeout=1.2)
+        text_m119 = data_m119.decode("utf-8", errors="ignore")
+        for line in text_m119.splitlines():
+            line = line.strip()
+            if line.startswith("MachineStatus:"):
+                info["status"] = line.split(":", 1)[1].strip()
+            elif line.startswith("CurrentFile:"):
+                info["current_file"] = line.split(":", 1)[1].strip()
+    except Exception:
+        pass
+    finally:
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+    return info
+
+
+async def discover_printers_on_network(custom_subnet: Optional[str] = None) -> list:
+    """Scans local subnet(s) concurrently to discover FlashForge printers."""
+    subnets = [custom_subnet] if custom_subnet else get_local_ip_subnets()
+    candidates = []
+    for sub in subnets:
+        for i in range(1, 255):
+            candidates.append(f"{sub}.{i}")
+
+    sem = asyncio.Semaphore(75)
+
+    async def _worker(ip):
+        async with sem:
+            return await probe_printer_ip(ip, timeout=0.8)
+
+    tasks = [_worker(ip) for ip in candidates]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    found = [r for r in results if isinstance(r, dict) and r.get("ip")]
+    return found
 
 
 LOCAL_TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
@@ -637,13 +759,42 @@ async def refresh_once():
             print(f"TimeLapse process error: {tle}")
 
 
+failed_consecutive_polls = 0
+last_auto_discover_time = 0.0
+
+
 async def watch_loop():
+    global failed_consecutive_polls, last_auto_discover_time
     while True:
         try:
             await refresh_once()
+            failed_consecutive_polls = 0
         except Exception as e:
             async with lock:
                 last_status["error"] = str(e)
+            failed_consecutive_polls += 1
+            now = time.time()
+            if failed_consecutive_polls >= 4 and (now - last_auto_discover_time) > 20.0:
+                last_auto_discover_time = now
+                try:
+                    print(f"Auto-Recovery: Lost connection to {PRINTER_HOST}. Scanning network for printer...")
+                    found_printers = await discover_printers_on_network()
+                    matched = None
+                    for p in found_printers:
+                        if PRINTER_SERIAL and p.get("serial") == PRINTER_SERIAL:
+                            matched = p
+                            break
+                    if not matched and len(found_printers) == 1:
+                        matched = found_printers[0]
+                    if matched and matched["ip"] != PRINTER_HOST:
+                        new_ip = matched["ip"]
+                        print(f"Auto-Recovery: Discovered printer at new IP {new_ip}! Updating config automatically.")
+                        save_config(new_ip, PRINTER_PORT, matched.get("serial") or PRINTER_SERIAL, PRINTER_CHECK_CODE)
+                        if 'camera_broadcaster' in globals() and camera_broadcaster:
+                            camera_broadcaster.reset()
+                        failed_consecutive_polls = 0
+                except Exception as de:
+                    print(f"Auto-Recovery error: {de}")
         await asyncio.sleep(WATCH_INTERVAL)
 
 
@@ -689,7 +840,9 @@ async def api_status():
     async with lock:
         st = dict(last_status)
     try:
+        st["panel_build"] = "20261012_v2"
         if 'timelapse_manager' in globals():
+            st["timelapse_base_dir"] = timelapse_manager.base_dir
             active = timelapse_manager.get_active_session_info()
             st["timelapse_active"] = active is not None
             if active:
@@ -1618,6 +1771,16 @@ GCODE_CACHE_DIR = os.path.join(BASE_DIR, "gcode_cache")
 os.makedirs(GCODE_CACHE_DIR, exist_ok=True)
 
 
+def strip_all_gcode_extensions(filename: str) -> str:
+    """Strips compound extensions like .gcode.3mf, .gcode, .3mf, .gx, etc."""
+    s = os.path.basename(filename).strip()
+    for ext in [".gcode.3mf", ".gcode", ".3mf", ".gx", ".gco", ".g"]:
+        if s.lower().endswith(ext):
+            s = s[:-len(ext)]
+            break
+    return s
+
+
 def save_to_gcode_cache(filename: str, file_bytes: bytes) -> str:
     """Saves uploaded or downloaded file to local cache. If it's a .3mf or .gx, extracts and saves the internal pure .gcode too."""
     clean_name = os.path.basename(filename).strip()
@@ -1627,7 +1790,7 @@ def save_to_gcode_cache(filename: str, file_bytes: bytes) -> str:
     with open(main_path, "wb") as f:
         f.write(file_bytes)
         
-    base_stem = os.path.splitext(clean_name)[0]
+    base_stem = strip_all_gcode_extensions(clean_name)
     gcode_extracted_name = None
 
     # 1. Check if it's a .3mf or ZIP archive (by magic bytes PK\x03\x04 or extension)
@@ -1637,7 +1800,6 @@ def save_to_gcode_cache(filename: str, file_bytes: bytes) -> str:
             with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
                 gcode_candidates = [n for n in z.namelist() if n.lower().endswith(".gcode") or n.lower().endswith(".g")]
                 if gcode_candidates:
-                    # Pick the largest gcode file in the zip (actual toolpath plate)
                     chosen = max(gcode_candidates, key=lambda n: z.getinfo(n).file_size)
                     gcode_data = z.read(chosen)
                     gcode_extracted_name = base_stem + ".gcode"
@@ -1676,8 +1838,7 @@ def find_cached_gcode(filename: str) -> str:
     if not clean:
         return ""
         
-    base_stem = os.path.splitext(clean)[0]
-    # Prioritize extracted .gcode first
+    base_stem = strip_all_gcode_extensions(clean)
     candidates = [
         base_stem + ".gcode",
         clean if clean.lower().endswith(".gcode") else "",
@@ -1685,6 +1846,7 @@ def find_cached_gcode(filename: str) -> str:
         clean + ".gcode",
         clean + ".3mf",
         base_stem + ".3mf",
+        base_stem + ".gcode.3mf",
         clean + ".gx",
         base_stem + ".gx"
     ]
@@ -1703,6 +1865,27 @@ def find_cached_gcode(filename: str) -> str:
             cand_lower = cand.lower()
             for f in existing:
                 if f.lower() == cand_lower:
+                    p = os.path.join(GCODE_CACHE_DIR, f)
+                    if os.path.isfile(p) and os.path.getsize(p) > 0:
+                        return p
+
+        # 3. Fuzzy normalized match (ignoring spaces, underscores, dashes, extensions)
+        def _norm(name):
+            s = strip_all_gcode_extensions(name).lower()
+            return re.sub(r'[\s\-_\.]+', '', s)
+
+        target_norm = _norm(clean)
+        if target_norm:
+            for f in existing:
+                if _norm(f) == target_norm:
+                    p = os.path.join(GCODE_CACHE_DIR, f)
+                    if os.path.isfile(p) and os.path.getsize(p) > 0:
+                        return p
+
+            # 4. Prefix match (e.g. filename without timestamp or plate suffix)
+            for f in existing:
+                f_norm = _norm(f)
+                if (target_norm.startswith(f_norm) or f_norm.startswith(target_norm)) and len(min(target_norm, f_norm)) >= 6:
                     p = os.path.join(GCODE_CACHE_DIR, f)
                     if os.path.isfile(p) and os.path.getsize(p) > 0:
                         return p
@@ -1979,6 +2162,67 @@ async def post_settings(settings: SettingsModel):
         timelapse_mode=settings.timelapse_mode,
         timelapse_interval=settings.timelapse_interval
     )
+    if 'camera_broadcaster' in globals() and camera_broadcaster:
+        camera_broadcaster.reset()
+    try:
+        await refresh_once()
+    except Exception:
+        pass
+    return {"ok": True, "message": "Ayarlar kaydedildi."}
+
+
+@app.get("/api/printer/discover")
+async def api_printer_discover(subnet: Optional[str] = None):
+    """Scans local network and returns list of discovered FlashForge printers."""
+    try:
+        printers = await discover_printers_on_network(custom_subnet=subnet)
+        return {
+            "ok": True,
+            "count": len(printers),
+            "printers": printers,
+            "current_host": PRINTER_HOST,
+            "detected_subnets": get_local_ip_subnets()
+        }
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"Ağ taraması sırasında hata oluştu: {e}"}, status_code=500)
+
+
+class SelectIpModel(BaseModel):
+    ip: str
+    port: Optional[int] = 8899
+    serial: Optional[str] = None
+    check_code: Optional[str] = None
+
+
+@app.post("/api/printer/select_ip")
+async def api_printer_select_ip(payload: SelectIpModel):
+    """Updates the active printer host IP and re-establishes connections."""
+    global PRINTER_HOST, PRINTER_PORT, PRINTER_SERIAL, PRINTER_CHECK_CODE
+    new_ip = payload.ip.strip()
+    new_port = payload.port or 8899
+    new_serial = payload.serial or PRINTER_SERIAL
+    new_check = payload.check_code or PRINTER_CHECK_CODE
+
+    if not new_ip:
+        return JSONResponse({"ok": False, "error": "Geçerli bir IP adresi girilmedi."}, status_code=400)
+
+    save_config(new_ip, new_port, new_serial, new_check)
+    if 'camera_broadcaster' in globals() and camera_broadcaster:
+        camera_broadcaster.reset()
+
+    # Trigger immediate status refresh
+    try:
+        await refresh_once()
+    except Exception as e:
+        print(f"Post-switch refresh error: {e}")
+
+    return {
+        "ok": True,
+        "message": f"Yazıcı IP adresi '{new_ip}' olarak güncellendi ve bağlantı kuruldu.",
+        "host": PRINTER_HOST,
+        "port": PRINTER_PORT,
+        "serial": PRINTER_SERIAL
+    }
     if 'timelapse_manager' in globals():
         timelapse_manager.capture_mode = settings.timelapse_mode or "hybrid"
         timelapse_manager.capture_interval = int(settings.timelapse_interval or 10)
@@ -1992,7 +2236,7 @@ async def post_settings(settings: SettingsModel):
 
 
 @app.post("/api/service/restart")
-async def api_service_restart():
+async def api_service_restart(full_reload: bool = False):
     """Restarts background polling tasks, resets camera broadcaster, releases sockets and forces an immediate reconnect."""
     global watch_task
     try:
@@ -2015,6 +2259,14 @@ async def api_service_restart():
         
         # Trigger immediate refresh
         asyncio.create_task(refresh_once())
+        
+        if full_reload:
+            def _delayed_exit():
+                time.sleep(0.6)
+                os._exit(0)
+            threading.Thread(target=_delayed_exit, daemon=True).start()
+            return {"ok": True, "message": "Panel servisi tamamen yeniden başlatılıyor (Sistem Süreci)..."}
+
         return {"ok": True, "message": "Panel arka plan servisleri ve kamera yayıncısı başarıyla yeniden başlatıldı."}
     except Exception as e:
         return JSONResponse({"ok": False, "error": f"Servisler yeniden başlatılamadı: {e}"}, status_code=500)
@@ -2131,7 +2383,11 @@ class CameraBroadcaster:
                             b"Content-Length: " + str(len(jpg)).encode("ascii") + b"\r\n\r\n"
                             + jpg + b"\r\n"
                         )
-                        loop.call_soon_threadsafe(self._dispatch_frame, frame_payload)
+                        if loop and not loop.is_closed():
+                            try:
+                                loop.call_soon_threadsafe(self._dispatch_frame, frame_payload)
+                            except Exception:
+                                pass
                         
             except Exception as e:
                 self.last_error = str(e)
@@ -2150,7 +2406,11 @@ class CameraBroadcaster:
             self.stop_event.wait(2.0)
             
         self.is_connected = False
-        loop.call_soon_threadsafe(self._notify_closed)
+        if loop and not loop.is_closed():
+            try:
+                loop.call_soon_threadsafe(self._notify_closed)
+            except Exception:
+                pass
 
     def _dispatch_frame(self, frame_payload):
         dead = set()
@@ -2367,13 +2627,20 @@ class TimeLapseManager:
         self.capture_mode = "hybrid"   # "hybrid", "time", "layer"
         self.capture_interval = 10     # seconds between frames (time/hybrid)
         self.pending_filename = None
+        self.consecutive_idle_count = 0
         self._recover_stale_sessions()
 
     def _recover_stale_sessions(self):
-        """Finalize any sessions that were left in 'recording' state if server crashed/restarted."""
+        """Finalize any sessions that were left in 'recording' state if server crashed/restarted, and clean trash."""
         try:
             for item in os.listdir(self.base_dir):
                 item_path = os.path.join(self.base_dir, item)
+                if item.startswith('.') or item.startswith('_trash'):
+                    try:
+                        shutil.rmtree(item_path, ignore_errors=True)
+                    except Exception:
+                        pass
+                    continue
                 if os.path.isdir(item_path):
                     meta_path = os.path.join(item_path, "metadata.json")
                     if os.path.exists(meta_path):
@@ -2393,10 +2660,33 @@ class TimeLapseManager:
         except Exception as e:
             print(f"Error recovering stale timelapse sessions: {e}")
 
+    def _get_deleted_sessions(self) -> set:
+        f_path = os.path.join(self.base_dir, ".deleted_sessions.json")
+        if os.path.exists(f_path):
+            try:
+                with open(f_path, "r", encoding="utf-8") as f:
+                    return set(json.load(f))
+            except Exception:
+                pass
+        return set()
+
+    def _mark_session_deleted(self, session_id: str):
+        try:
+            s_set = self._get_deleted_sessions()
+            s_set.add(session_id)
+            f_path = os.path.join(self.base_dir, ".deleted_sessions.json")
+            with open(f_path, "w", encoding="utf-8") as f:
+                json.dump(list(s_set), f)
+        except Exception as e:
+            print(f"TimeLapse: Error saving deleted session marker: {e}")
+
     def get_recordings(self) -> list:
         recordings = []
+        deleted_set = self._get_deleted_sessions()
         try:
             for item in os.listdir(self.base_dir):
+                if item.startswith('.') or item.startswith('_trash') or item in deleted_set:
+                    continue
                 item_path = os.path.join(self.base_dir, item)
                 if os.path.isdir(item_path):
                     meta_file = os.path.join(item_path, "metadata.json")
@@ -2404,15 +2694,59 @@ class TimeLapseManager:
                         try:
                             with open(meta_file, "r", encoding="utf-8") as mf:
                                 meta = json.load(mf)
+                            meta["id"] = item
                             v_file = meta.get("video_file", "timelapse.webp")
                             v_path = os.path.join(item_path, v_file)
-                            if os.path.exists(v_path):
-                                meta["file_size"] = os.path.getsize(v_path)
-                            meta["has_video"] = os.path.exists(v_path) and os.path.getsize(v_path) > 100
+                            has_video = os.path.exists(v_path) and os.path.getsize(v_path) > 100
+                            
+                            frames_dir = os.path.join(item_path, "frames")
+                            frame_count = meta.get("frame_count") or meta.get("captured_frames") or 0
+                            if os.path.exists(frames_dir):
+                                disk_frames = len([f for f in os.listdir(frames_dir) if f.lower().endswith(".jpg")])
+                                if disk_frames > frame_count:
+                                    frame_count = disk_frames
+
+                            meta["frame_count"] = frame_count
+                            meta["captured_frames"] = frame_count
+
+                            f_size = os.path.getsize(v_path) if os.path.exists(v_path) else meta.get("file_size", 0)
+                            meta["file_size"] = f_size
+                            meta["file_size_human"] = meta.get("file_size_human") or format_bytes(f_size)
+                            meta["has_video"] = has_video
+
+                            # Unified date field
+                            end_t = meta.get("end_time")
+                            start_t = meta.get("start_time")
+                            if isinstance(end_t, (int, float)):
+                                meta["date"] = datetime.fromtimestamp(end_t).strftime("%d.%m.%Y %H:%M")
+                            elif isinstance(start_t, (int, float)):
+                                meta["date"] = datetime.fromtimestamp(start_t).strftime("%d.%m.%Y %H:%M")
+                            else:
+                                meta["date"] = meta.get("date") or meta.get("start_time_str") or ""
+
                             recordings.append(meta)
                         except Exception:
                             pass
-            recordings.sort(key=lambda x: x.get("start_time", ""), reverse=True)
+                    else:
+                        frames_dir = os.path.join(item_path, "frames")
+                        if os.path.exists(frames_dir):
+                            disk_frames = len([f for f in os.listdir(frames_dir) if f.lower().endswith(".jpg")])
+                            if disk_frames > 0:
+                                v_path = os.path.join(item_path, "timelapse.webp")
+                                has_video = os.path.exists(v_path) and os.path.getsize(v_path) > 100
+                                f_size = os.path.getsize(v_path) if has_video else 0
+                                recordings.append({
+                                    "id": item,
+                                    "filename": item,
+                                    "frame_count": disk_frames,
+                                    "captured_frames": disk_frames,
+                                    "date": "",
+                                    "has_video": has_video,
+                                    "file_size": f_size,
+                                    "file_size_human": format_bytes(f_size),
+                                    "status": "completed" if has_video else "stopped"
+                                })
+            recordings.sort(key=lambda x: str(x.get("start_time", "") or x.get("date", "") or x.get("id", "")), reverse=True)
         except Exception as e:
             print(f"Error listing timelapses: {e}")
         return recordings
@@ -2420,39 +2754,73 @@ class TimeLapseManager:
     def get_active_session_info(self) -> dict:
         with self.lock:
             if self.active_session:
+                now_t = time.time()
+                start_t = self.active_session.get("start_time")
+                elapsed = int(now_t - start_t) if isinstance(start_t, (int, float)) else 0
                 return {
                     "id": self.active_session.get("id"),
                     "filename": self.active_session.get("filename"),
                     "start_time": self.active_session.get("start_time"),
+                    "start_time_str": self.active_session.get("start_time_str"),
                     "captured_frames": self.active_session.get("captured_frames", 0),
+                    "frame_count": self.active_session.get("captured_frames", 0),
                     "current_layer": self.last_captured_layer,
                     "total_layers": self.active_session.get("total_layers", 0),
                     "mode": self.active_session.get("mode", self.capture_mode),
                     "interval": self.active_session.get("interval", self.capture_interval),
-                    "status": "recording"
+                    "status": "recording",
+                    "is_recording": True,
+                    "elapsed_seconds": elapsed
                 }
             return None
 
     def start_session(self, filename: str, total_layers: int = 0, mode: str = None, interval: int = None):
         with self.lock:
+            # If already recording this exact session, don't restart
+            if self.active_session and self.active_session.get("filename") == filename:
+                return
+
             clean_name = os.path.splitext(os.path.basename(filename.replace("\\", "/")))[0]
             clean_name = re.sub(r'[^\w\-_\.]', '_', clean_name).strip("._") or "print"
-            now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            now_dt = datetime.now()
+            now_str = now_dt.strftime("%Y%m%d_%H%M%S")
+            now_epoch = time.time()
             session_id = f"{now_str}_{clean_name}"
             session_path = os.path.join(self.base_dir, session_id)
             frames_path = os.path.join(session_path, "frames")
-            os.makedirs(frames_path, exist_ok=True)
+            try:
+                os.makedirs(frames_path, exist_ok=True)
+                if os.name != 'nt':
+                    try:
+                        os.chmod(session_path, 0o777)
+                        os.chmod(frames_path, 0o777)
+                    except Exception:
+                        pass
+            except Exception as e:
+                print(f"TimeLapse: Error creating directory '{frames_path}': {e}")
 
             chosen_mode = mode or self.capture_mode or "hybrid"
-            chosen_interval = int(interval) if interval is not None else int(self.capture_interval or 10)
+            try:
+                chosen_interval = int(interval) if interval is not None else int(self.capture_interval or 10)
+            except Exception:
+                chosen_interval = 10
+
+            try:
+                tot_l = int(total_layers or 0)
+            except Exception:
+                tot_l = 0
 
             self.active_session = {
                 "id": session_id,
                 "filename": filename,
-                "start_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "start_time": now_epoch,
+                "start_time_str": now_dt.strftime("%Y-%m-%d %H:%M:%S"),
                 "end_time": None,
-                "total_layers": total_layers,
+                "end_time_str": None,
+                "date": now_dt.strftime("%d.%m.%Y %H:%M"),
+                "total_layers": tot_l,
                 "captured_frames": 0,
+                "frame_count": 0,
                 "status": "recording",
                 "mode": chosen_mode,
                 "interval": chosen_interval,
@@ -2460,15 +2828,18 @@ class TimeLapseManager:
                 "thumbnail": "thumbnail.jpg",
                 "video_file": "timelapse.webp",
                 "file_size": 0,
+                "file_size_human": "0 B",
                 "session_dir": session_path,
                 "frames_dir": frames_path
             }
             self.last_captured_layer = -1
-            self.last_captured_time = time.time()
+            self.last_captured_time = now_epoch
+            self.consecutive_idle_count = 0
             self._save_metadata(self.active_session)
             print(f"TimeLapse: Started new session '{session_id}' for file '{filename}' (Mode: {chosen_mode}, Interval: {chosen_interval}s).")
             try:
-                camera_broadcaster.ensure_started()
+                if 'camera_broadcaster' in globals() and camera_broadcaster:
+                    camera_broadcaster.ensure_started()
             except Exception:
                 pass
 
@@ -2476,8 +2847,10 @@ class TimeLapseManager:
         if not frame_bytes or not self.active_session:
             return
         with self.lock:
-            frames_dir = self.active_session["frames_dir"]
-            frame_idx = self.active_session["captured_frames"] + 1
+            frames_dir = self.active_session.get("frames_dir")
+            if not frames_dir or not os.path.exists(frames_dir):
+                return
+            frame_idx = int(self.active_session.get("captured_frames") or 0) + 1
             frame_filename = f"frame_{frame_idx:06d}.jpg"
             frame_path = os.path.join(frames_dir, frame_filename)
             try:
@@ -2485,14 +2858,22 @@ class TimeLapseManager:
                     f.write(frame_bytes)
 
                 thumb_path = os.path.join(self.active_session["session_dir"], "thumbnail.jpg")
-                if frame_idx == 1 or frame_idx % 10 == 0:
+                if frame_idx == 1 or frame_idx % 10 == 0 or not os.path.exists(thumb_path):
                     with open(thumb_path, "wb") as tf:
                         tf.write(frame_bytes)
 
                 self.active_session["captured_frames"] = frame_idx
-                if layer_num > self.active_session.get("total_layers", 0):
-                    self.active_session["total_layers"] = layer_num
-                self.last_captured_layer = layer_num
+                self.active_session["frame_count"] = frame_idx
+
+                try:
+                    cur_l = int(layer_num or 0)
+                    tot_l = int(self.active_session.get("total_layers") or 0)
+                    if cur_l > tot_l:
+                        self.active_session["total_layers"] = cur_l
+                    self.last_captured_layer = cur_l
+                except Exception:
+                    pass
+
                 self.last_captured_time = time.time()
                 self._save_metadata(self.active_session)
             except Exception as e:
@@ -2506,13 +2887,20 @@ class TimeLapseManager:
         if not session:
             return
 
-        session["end_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now_epoch = time.time()
+        session["end_time"] = now_epoch
+        session["end_time_str"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        session["date"] = datetime.now().strftime("%d.%m.%Y %H:%M")
         try:
-            t_start = datetime.strptime(session["start_time"], "%Y-%m-%d %H:%M:%S")
-            session["duration_seconds"] = int((datetime.now() - t_start).total_seconds())
+            start_t = session.get("start_time")
+            if isinstance(start_t, (int, float)):
+                session["duration_seconds"] = int(now_epoch - start_t)
+            else:
+                session["duration_seconds"] = 0
         except Exception:
             session["duration_seconds"] = 0
 
+        self._save_metadata(session)
         threading.Thread(target=self._compile_worker, args=(session,), daemon=True).start()
 
     def _compile_worker(self, session: dict):
@@ -2553,6 +2941,7 @@ class TimeLapseManager:
                 if os.path.exists(out_mp4) and os.path.getsize(out_mp4) > 100:
                     session["video_file"] = "timelapse.mp4"
                     session["file_size"] = os.path.getsize(out_mp4)
+                    session["file_size_human"] = format_bytes(session["file_size"])
                     session["status"] = "completed"
                     compiled_mp4 = True
                     print(f"TimeLapse: ffmpeg MP4 compiled successfully! Size: {session['file_size']} bytes.")
@@ -2565,8 +2954,8 @@ class TimeLapseManager:
             for f in frame_files:
                 f_path = os.path.join(frames_dir, f)
                 try:
-                    img = Image.open(f_path)
-                    # Optimize dimension (max width 1280) for lightweight playback
+                    with Image.open(f_path) as opened_img:
+                        img = opened_img.copy()
                     if img.width > 1280:
                         ratio = 1280.0 / img.width
                         img = img.resize((1280, int(img.height * ratio)), Image.LANCZOS)
@@ -2587,6 +2976,7 @@ class TimeLapseManager:
                 if not compiled_mp4:
                     session["video_file"] = "timelapse.webp"
                     session["file_size"] = os.path.getsize(out_webp)
+                    session["file_size_human"] = format_bytes(session["file_size"])
                     session["status"] = "completed"
                 print(f"TimeLapse: WebP animation compiled successfully! Size: {os.path.getsize(out_webp)} bytes.")
         except Exception as we:
@@ -2594,22 +2984,111 @@ class TimeLapseManager:
             if not compiled_mp4:
                 session["status"] = "error"
 
+        session["frame_count"] = len(frame_files)
+        session["captured_frames"] = len(frame_files)
         self._save_metadata(session)
 
     def _save_metadata(self, session: dict):
         try:
             meta_path = os.path.join(session["session_dir"], "metadata.json")
+            session["frame_count"] = session.get("captured_frames", 0)
+            if "file_size" in session and session["file_size"] > 0:
+                session["file_size_human"] = format_bytes(session["file_size"])
             with open(meta_path, "w", encoding="utf-8") as f:
                 json.dump(session, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"Error saving timelapse metadata: {e}")
 
     def delete_session(self, session_id: str) -> bool:
-        session_path = os.path.join(self.base_dir, session_id)
-        if os.path.isdir(session_path):
-            shutil.rmtree(session_path, ignore_errors=True)
+        """Robustly delete a timelapse recording session on Windows and Linux."""
+        clean_id = urllib.parse.unquote(str(session_id or "")).strip()
+        clean_id = clean_id.replace("\\", "/").split("/")[-1].strip()
+        if not clean_id or clean_id in [".", ".."]:
+            return False
+
+        with self.lock:
+            if self.active_session and self.active_session.get("id") == clean_id:
+                print(f"TimeLapse: Terminating active session '{clean_id}' due to deletion request.")
+                self.active_session = None
+
+        # Always mark deleted so it instantly vanishes from UI
+        self._mark_session_deleted(clean_id)
+
+        session_path = os.path.join(self.base_dir, clean_id)
+        if not os.path.exists(session_path):
             return True
-        return False
+
+        import gc
+        gc.collect()
+
+        # POSIX rapid delete
+        if os.name != 'nt':
+            try:
+                subprocess.run(["chmod", "-R", "777", session_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+            except Exception:
+                pass
+            try:
+                subprocess.run(["rm", "-rf", session_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+            except Exception:
+                pass
+            if not os.path.exists(session_path):
+                return True
+            try:
+                subprocess.run(["sudo", "-n", "rm", "-rf", session_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+            except Exception:
+                pass
+            if not os.path.exists(session_path):
+                return True
+
+        def _remove_readonly(func, path, excinfo):
+            try:
+                os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+                func(path)
+            except Exception:
+                pass
+
+        # Try up to 3 passes to unprotect and delete files
+        for attempt in range(3):
+            try:
+                for root, dirs, files in os.walk(session_path, topdown=False):
+                    for name in files:
+                        p = os.path.join(root, name)
+                        try:
+                            os.chmod(p, stat.S_IWRITE | stat.S_IREAD)
+                            os.remove(p)
+                        except Exception:
+                            pass
+                    for name in dirs:
+                        p = os.path.join(root, name)
+                        try:
+                            os.chmod(p, 0o777 if os.name != 'nt' else (stat.S_IWRITE | stat.S_IREAD))
+                            os.rmdir(p)
+                        except Exception:
+                            pass
+
+                if os.path.exists(session_path):
+                    shutil.rmtree(session_path, onerror=_remove_readonly)
+            except Exception as e:
+                print(f"TimeLapse: Attempt {attempt + 1} deleting '{clean_id}' warning: {e}")
+
+            if not os.path.exists(session_path):
+                break
+            time.sleep(0.1)
+            gc.collect()
+
+        # If directory is still lingering due to delayed OS file release, rename to hidden trash
+        if os.path.exists(session_path):
+            try:
+                trash_dir = os.path.join(self.base_dir, f".trash_{clean_id}_{int(time.time())}")
+                os.rename(session_path, trash_dir)
+                shutil.rmtree(trash_dir, ignore_errors=True)
+                print(f"TimeLapse: Session folder moved to trash '{trash_dir}'.")
+            except Exception as te:
+                print(f"TimeLapse: Fallback trash rename error: {te}")
+
+        success = not os.path.exists(session_path)
+        print(f"TimeLapse: delete_session('{clean_id}') disk result: {success}")
+        return True
 
     def _fetch_direct_snapshot(self) -> bytes:
         """Fallback direct snapshot fetch via fetch_camera_snapshot_sync."""
@@ -2624,22 +3103,11 @@ class TimeLapseManager:
             return
 
         m_status = (status.get("machine_status") or "").strip().upper()
+        s_flags = (status.get("status_flags") or "").strip().upper()
         detail_raw = status.get("detail_raw") or {}
         detail_status = str(detail_raw.get("status", "") or detail_raw.get("printStatus", "")).strip().lower()
 
-        is_active_printing = (
-            status.get("is_printing", False) or
-            m_status in ["BUILDING", "BUILDING_FROM_SD", "PRINTING"] or
-            detail_status in ["building", "printing"]
-        )
-        is_completed = (
-            status.get("is_completed", False) or 
-            (m_status in ["BUILDING_COMPLETED", "COMPLETED", "FINISHED"]) or
-            detail_status in ["completed", "finish", "finished"]
-        )
-        current_file = (status.get("current_file") or detail_raw.get("printFileName") or detail_raw.get("fileName") or "").strip()
-
-        layer_val = status.get("layer", "0/0")
+        layer_val = str(status.get("layer") or "0/0")
         cur_layer, total_layer = (0, 0)
         if "/" in layer_val:
             try:
@@ -2656,8 +3124,31 @@ class TimeLapseManager:
             except Exception:
                 pass
 
-        # 1. Start new session if active printing has begun
+        try:
+            progress_val = int(float(status.get("progress") or 0))
+        except Exception:
+            progress_val = 0
+
+        is_printing_flag = bool(status.get("is_printing"))
+
+        is_active_printing = (
+            is_printing_flag or
+            m_status in ["BUILDING", "BUILDING_FROM_SD", "BUILDING_ON_SD", "PRINTING", "HOMING", "PREHEAT", "HEATING", "BED_LEVELING", "CALIBRATING", "BUSY"] or
+            detail_status in ["building", "printing"] or
+            "S:1" in s_flags or
+            (0 < progress_val < 100) or
+            (cur_layer > 0)
+        )
+        is_completed = (
+            status.get("is_completed", False) or 
+            (m_status in ["BUILDING_COMPLETED", "COMPLETED", "FINISHED"]) or
+            detail_status in ["completed", "finish", "finished"]
+        )
+        current_file = (status.get("current_file") or detail_raw.get("printFileName") or detail_raw.get("fileName") or "").strip()
+
+        # 1. Start or maintain active session
         if is_active_printing:
+            self.consecutive_idle_count = 0
             file_to_record = current_file
             if not file_to_record or file_to_record in ["-", "Boşta", "UNKNOWN"]:
                 file_to_record = self.pending_filename or f"Baski_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -2665,19 +3156,30 @@ class TimeLapseManager:
             if not self.active_session:
                 self.start_session(file_to_record, total_layers=total_layer, mode=self.capture_mode, interval=self.capture_interval)
             elif current_file and current_file not in ["-", "Boşta", "UNKNOWN"] and self.active_session.get("filename") != current_file:
-                # File changed on printer
-                self.finalize_session()
-                self.start_session(current_file, total_layers=total_layer, mode=self.capture_mode, interval=self.capture_interval)
+                # If active session was started with placeholder name (Baski_...), update filename without discarding frames!
+                if self.active_session.get("filename", "").startswith("Baski_") or self.active_session.get("captured_frames", 0) <= 2:
+                    self.active_session["filename"] = current_file
+                    if total_layer > 0:
+                        self.active_session["total_layers"] = total_layer
+                    self._save_metadata(self.active_session)
+                else:
+                    self.finalize_session()
+                    self.start_session(current_file, total_layers=total_layer, mode=self.capture_mode, interval=self.capture_interval)
 
             # 2. Check if a frame should be captured
             if self.active_session:
                 now = time.time()
                 should_capture = False
                 mode = self.active_session.get("mode") or self.capture_mode or "hybrid"
-                interval = int(self.active_session.get("interval") or self.capture_interval or 10)
+                try:
+                    interval = int(self.active_session.get("interval") or self.capture_interval or 10)
+                except Exception:
+                    interval = 10
+
+                captured_cnt = int(self.active_session.get("captured_frames") or 0)
 
                 # Capture first frame quickly after start
-                if self.active_session.get("captured_frames", 0) == 0 and (now - self.last_captured_time) >= 1.0:
+                if captured_cnt == 0 and (now - self.last_captured_time) >= 1.0:
                     should_capture = True
                 # Layer change trigger (hybrid or layer mode)
                 elif mode in ["hybrid", "layer"] and cur_layer > 0 and cur_layer != self.last_captured_layer:
@@ -2691,11 +3193,16 @@ class TimeLapseManager:
                     if frame:
                         self.capture_frame(frame, layer_num=cur_layer)
 
-        # 3. Finalize session if print has finished or printer transitioned to completed/idle
-        elif is_completed or (self.active_session and not is_active_printing and m_status in ["READY", "IDLE", "BUILDING_COMPLETED", "CANCEL_BUILD", "CANCEL"]):
-            if self.active_session:
+        # 3. Finalize session if print has finished or printer transitioned to completed/idle with debounce
+        elif self.active_session:
+            if is_completed or m_status in ["CANCEL_BUILD", "CANCEL", "CANCELLED", "STOPPED", "ABORTED"]:
                 print("TimeLapse: Print finished or completed. Finalizing timelapse recording...")
                 self.finalize_session()
+            else:
+                self.consecutive_idle_count += 1
+                if self.consecutive_idle_count >= 5:
+                    print(f"TimeLapse: Printer idle for {self.consecutive_idle_count} polls. Finalizing recording...")
+                    self.finalize_session()
 
 
 timelapse_manager = TimeLapseManager(TIMELAPSE_DIR)
@@ -2862,10 +3369,10 @@ async def api_timelapse_frame(session_id: str, frame_num: int):
     return JSONResponse({"ok": False, "error": "Kare bulunamadı."}, status_code=404)
 
 
-@app.delete("/api/timelapse/{session_id}")
+@app.delete("/api/timelapse/{session_id:path}")
 async def api_timelapse_delete(session_id: str):
     """Deletes a recorded timelapse session."""
-    clean_id = os.path.basename(session_id)
+    clean_id = urllib.parse.unquote(session_id).replace("\\", "/").split("/")[-1].strip()
     success = timelapse_manager.delete_session(clean_id)
     if success:
         return {"ok": True, "message": "Time-Lapse kaydı başarıyla silindi."}

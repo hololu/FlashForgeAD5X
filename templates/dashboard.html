@@ -1921,51 +1921,79 @@
         }
 
         /* MODAL OVERLAY */
+        /* MODAL OVERLAY */
         .modal-overlay {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0, 0, 0, 0.6);
+            background: rgba(0, 0, 0, 0.65);
             backdrop-filter: blur(12px);
             -webkit-backdrop-filter: blur(12px);
             display: none;
             align-items: center;
             justify-content: center;
             z-index: 1000;
+            padding: 16px;
+            overflow-y: auto;
             animation: fadeIn 0.25s ease;
         }
 
         .modal-window {
-            background: rgba(17, 24, 39, 0.95);
+            background: rgba(17, 24, 39, 0.96);
             border: 1px solid var(--border-highlight);
             border-radius: var(--border-radius-lg);
             width: 95%;
-            max-width: 500px;
-            padding: 24px;
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+            max-width: 520px;
+            max-height: 88vh;
+            max-height: 88dvh;
+            padding: 22px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
             display: flex;
             flex-direction: column;
-            gap: 16px;
+            gap: 14px;
+            overflow: hidden;
+            position: relative;
             animation: scaleIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
 
         .modal-title {
-            font-size: 18px;
+            font-size: 17px;
             font-weight: 700;
             display: flex;
             align-items: center;
+            justify-content: space-between;
             gap: 8px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.08);
             padding-bottom: 12px;
             color: #ffffff;
+            flex-shrink: 0;
         }
 
         .modal-body {
             display: flex;
             flex-direction: column;
             gap: 12px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            flex: 1 1 auto;
+            min-height: 0;
+            padding-right: 4px;
+            overscroll-behavior: contain;
+        }
+
+        .modal-body::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .modal-body::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+        }
+
+        .modal-body::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.3);
         }
 
         .form-group {
@@ -2051,6 +2079,11 @@
             border-top: 1px solid rgba(255, 255, 255, 0.08);
             padding-top: 14px;
             margin-top: 6px;
+            flex-shrink: 0;
+            background: inherit;
+            position: sticky;
+            bottom: 0;
+            z-index: 5;
         }
 
         @keyframes fadeIn {
@@ -5076,6 +5109,94 @@
             document.getElementById('aboutModal').style.display = 'none';
         }
 
+        async function scanNetworkPrinters() {
+            const btn = document.getElementById('btnScanPrinters');
+            const spin = document.getElementById('scanSpinner');
+            const icon = document.getElementById('scanIcon');
+            const box = document.getElementById('discoveredPrintersBox');
+            const list = document.getElementById('discoveredPrintersList');
+            const subTxt = document.getElementById('scanSubnetText');
+
+            if (btn) btn.disabled = true;
+            if (spin) spin.style.display = 'inline-block';
+            if (icon) icon.style.display = 'none';
+            if (box) box.style.display = 'block';
+            if (list) list.innerHTML = '<div style="color: var(--text-muted); font-size: 11px; padding: 6px 0;">Yerel ağdaki FlashForge yazıcılar taranıyor (Port 8899)...</div>';
+
+            try {
+                const resp = await fetch('/api/printer/discover');
+                const data = await resp.json();
+                if (!data.ok) throw new Error(data.error || 'Tarama hatası');
+
+                if (subTxt && data.detected_subnets) {
+                    subTxt.textContent = `Taranan: ${data.detected_subnets.map(s => s + '.x').join(', ')}`;
+                }
+
+                const printers = data.printers || [];
+                if (printers.length === 0) {
+                    list.innerHTML = '<div style="color: #f59e0b; font-size: 11px; padding: 6px 0;">⚠️ Ağda açık FlashForge yazıcı bulunamadı. Yazıcının açık ve aynı Wi-Fi/Ethernet ağında olduğunu kontrol edin.</div>';
+                    return;
+                }
+
+                let html = '';
+                printers.forEach(p => {
+                    const isCurrent = (p.ip === document.getElementById('settingsHost').value.trim());
+                    html += `
+                        <div style="background: rgba(255,255,255,0.04); border: 1px solid ${isCurrent ? 'rgba(16, 185, 129, 0.4)' : 'rgba(255,255,255,0.08)'}; border-radius: 6px; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                            <div>
+                                <div style="font-weight: 600; font-size: 12px; color: #ffffff; display: flex; align-items: center; gap: 6px;">
+                                    <span>${p.machine_type || p.machine_name || 'FlashForge Yazıcı'}</span>
+                                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; background: rgba(99, 102, 241, 0.2); padding: 1px 5px; border-radius: 3px; color: #a5b4fc;">${p.ip}:${p.port}</span>
+                                    ${isCurrent ? '<span style="font-size: 9px; background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 1px 4px; border-radius: 3px;">Mevcut</span>' : ''}
+                                </div>
+                                <div style="font-size: 10.5px; color: var(--text-muted); margin-top: 2px;">
+                                    ${p.serial ? `SN: ${p.serial} • ` : ''}${p.firmware ? `FW: ${p.firmware} • ` : ''}Durum: ${p.status || 'ONLINE'}
+                                    ${p.current_file ? ` • Dosya: ${p.current_file}` : ''}
+                                </div>
+                            </div>
+                            <div>
+                                <button type="button" class="btn btn-primary" onclick="selectDiscoveredPrinter('${p.ip}', ${p.port}, '${p.serial || ''}')" style="padding: 4px 10px; font-size: 11px; white-space: nowrap;">
+                                    Bu IP'yi Kullan
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                });
+                list.innerHTML = html;
+            } catch (e) {
+                if (list) list.innerHTML = `<div style="color: #ef4444; font-size: 11px;">Hata: ${e.message}</div>`;
+            } finally {
+                if (btn) btn.disabled = false;
+                if (spin) spin.style.display = 'none';
+                if (icon) icon.style.display = 'inline';
+            }
+        }
+
+        async function selectDiscoveredPrinter(ip, port, serial) {
+            document.getElementById('settingsHost').value = ip;
+            if (port) document.getElementById('settingsPort').value = port;
+            if (serial && !document.getElementById('settingsSerial').value) {
+                document.getElementById('settingsSerial').value = serial;
+            }
+
+            try {
+                const resp = await fetch('/api/printer/select_ip', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ip: ip, port: port, serial: serial })
+                });
+                const res = await resp.json();
+                if (res.ok) {
+                    alert(`🎉 Başarılı: ${res.message}`);
+                    setTimeout(() => {
+                        if (typeof load === 'function') load();
+                    }, 600);
+                }
+            } catch(e) {
+                console.error('select_ip error:', e);
+            }
+        }
+
         function saveSettings() {
             const host = document.getElementById('settingsHost').value.trim();
             const port = parseInt(document.getElementById('settingsPort').value);
@@ -5293,8 +5414,22 @@
             isLiveSyncActive: true,
             isInitialized: false,
             isTabActive: true,
+            loadedFileName: "",
+            lastAutoFetchFile: "",
             modelDimensions: { x: 0, y: 0, z: 0 },
             modelCenter: { x: 0, y: 0, z: 0 },
+
+            normalizeModelName(name) {
+                if (!name) return '';
+                let s = String(name).replace(/\\/g, '/').split('/').pop().trim().toLowerCase();
+                for (const ext of ['.gcode.3mf', '.gcode', '.3mf', '.gx', '.gco', '.g']) {
+                    if (s.endsWith(ext)) {
+                        s = s.substring(0, s.length - ext.length);
+                        break;
+                    }
+                }
+                return s;
+            },
 
             init() {
                 if (this.isInitialized) {
@@ -5604,6 +5739,7 @@
                 this.currentPathProgress = 1.0;
                 this.modelDimensions = { x: 0, y: 0, z: 0 };
                 this.modelCenter = { x: 0, y: 0, z: 0 };
+                this.loadedFileName = "";
 
                 if (this.nozzleMesh) this.nozzleMesh.visible = false;
 
@@ -6154,6 +6290,8 @@
 
                 const modelNameEl = document.getElementById('gcodeModelName');
                 if (modelNameEl) modelNameEl.textContent = modelName;
+                this.loadedFileName = modelName;
+                this.lastAutoFetchFile = modelName;
 
                 const activeDot = document.getElementById('gcodeActiveDot');
                 if (activeDot) activeDot.style.display = 'inline-block';
@@ -6417,6 +6555,29 @@
                         } else {
                             banner.style.display = 'none';
                         }
+                    }
+                }
+
+                // --- Active Project Auto-Synchronization ---
+                if (hasFile && (isPrinting || isPausedState)) {
+                    const normPrinterFile = this.normalizeModelName(cleanFile);
+                    const normLoadedFile = this.normalizeModelName(this.loadedFileName);
+
+                    // A new print file is active on the printer and differs from what's loaded, or nothing loaded
+                    const isDifferentModel = Boolean(normLoadedFile && normPrinterFile && normLoadedFile !== normPrinterFile);
+                    const isUnloadedModel = Boolean(!normLoadedFile && this.lastAutoFetchFile !== cleanFile);
+                    const isStaleModel = Boolean(this.layers.length > 0 && !normLoadedFile);
+
+                    if (isDifferentModel || isUnloadedModel || isStaleModel) {
+                        console.log(`Yeni baskı projesi algılandı: "${cleanFile}" (Mevcut model: "${this.loadedFileName || 'Yok'}"). 3D görselleştirici güncelleniyor...`);
+                        this.closeModel();
+                        this.lastAutoFetchFile = cleanFile;
+                        setTimeout(() => {
+                            if (typeof loadCurrentPrintGcode === 'function') {
+                                loadCurrentPrintGcode();
+                            }
+                        }, 250);
+                        return;
                     }
                 }
 
@@ -6722,6 +6883,7 @@
 
                     if (viewer) {
                         viewer.hideLoading();
+                        viewer.closeModel();
                         viewer.showPromptModal('Aktif Baskı: ' + curFileName, errMsg);
                     } else {
                         alert(errMsg);
@@ -6929,17 +7091,36 @@
 
     <!-- SETTINGS MODAL OVERLAY -->
     <div class="modal-overlay" id="settingsModal">
-        <div class="modal-window">
-            <div class="modal-title" style="display: flex; align-items: center; gap: 8px;">
-                <img src="/hFlashForgeLogo.svg" alt="Logo" style="width: 22px; height: 22px; object-fit: contain;">
-                Yazıcı Bağlantı Ayarları & Sistem Yönetimi
+        <div class="modal-window" style="max-width: 550px; max-height: 88vh; max-height: 88dvh; display: flex; flex-direction: column; overflow: hidden; padding: 20px 24px;">
+            <div class="modal-title" style="display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; padding-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <img src="/hFlashForgeLogo.svg" alt="Logo" style="width: 22px; height: 22px; object-fit: contain;">
+                    <span>Yazıcı Bağlantı Ayarları & Sistem Yönetimi</span>
+                </div>
+                <button type="button" onclick="closeSettingsModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 24px; line-height: 1; padding: 0 4px; transition: color 0.15s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='var(--text-muted)'" title="Kapat">&times;</button>
             </div>
             
-            <div class="modal-body">
-                <!-- IP Address -->
+            <div class="modal-body" style="overflow-y: auto; overflow-x: hidden; flex: 1 1 auto; min-height: 0; padding-right: 6px;">
+                <!-- IP Address with Network Discovery -->
                 <div class="form-group">
-                    <label class="form-label" for="settingsHost">Yazıcı IP Adresi (FLASHFORGE_HOST)</label>
-                    <input type="text" class="form-input" id="settingsHost" placeholder="Örn: 192.168.1.12">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <label class="form-label" for="settingsHost" style="margin-bottom: 0;">Yazıcı IP Adresi (FLASHFORGE_HOST)</label>
+                        <button type="button" class="btn btn-secondary" id="btnScanPrinters" onclick="scanNetworkPrinters()" style="padding: 4px 10px; font-size: 11px; display: inline-flex; align-items: center; gap: 5px; background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.4); color: #a5b4fc; cursor: pointer;">
+                            <span id="scanSpinner" style="display: none; animation: spin 1s linear infinite;">⏳</span>
+                            <span id="scanIcon">🔍</span>
+                            <span>Ağda Yazıcı Ara / Keşfet</span>
+                        </button>
+                    </div>
+                    <input type="text" class="form-input" id="settingsHost" placeholder="Örn: 192.168.1.19">
+                    
+                    <!-- Discovered Printers Box -->
+                    <div id="discoveredPrintersBox" style="display: none; margin-top: 10px; padding: 12px; border-radius: 8px; background: rgba(0,0,0,0.35); border: 1px solid rgba(99, 102, 241, 0.35);">
+                        <div style="font-size: 12px; font-weight: 600; color: #a5b4fc; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+                            <span>📡 Ağda Tespit Edilen FlashForge Yazıcılar:</span>
+                            <span id="scanSubnetText" style="font-size: 10.5px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;"></span>
+                        </div>
+                        <div id="discoveredPrintersList" style="display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto; padding-right: 4px;"></div>
+                    </div>
                 </div>
                 
                 <!-- TCP Port -->
@@ -7037,7 +7218,7 @@
                 </div>
             </div>
             
-            <div class="modal-footer">
+            <div class="modal-footer" style="flex-shrink: 0; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 14px; margin-top: 8px; display: flex; justify-content: flex-end; gap: 10px; background: inherit; position: sticky; bottom: 0; z-index: 5;">
                 <button class="btn btn-secondary" onclick="closeSettingsModal()">Kapat</button>
                 <button class="btn btn-primary" onclick="saveSettings()">Ayarları Kaydet</button>
             </div>
@@ -7046,10 +7227,13 @@
 
     <!-- ABOUT MODAL OVERLAY -->
     <div class="modal-overlay" id="aboutModal">
-        <div class="modal-window" style="max-width: 460px;">
-            <div class="modal-title" style="display: flex; align-items: center; gap: 8px;">
-                <img src="/hFlashForgeLogo.svg" alt="Logo" style="width: 22px; height: 22px; object-fit: contain;">
-                Hakkında & Telif Hakkı
+        <div class="modal-window" style="max-width: 460px; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden;">
+            <div class="modal-title" style="display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <img src="/hFlashForgeLogo.svg" alt="Logo" style="width: 22px; height: 22px; object-fit: contain;">
+                    <span>Hakkında & Telif Hakkı</span>
+                </div>
+                <button type="button" onclick="closeAboutModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 24px; line-height: 1; padding: 0 4px; transition: color 0.15s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='var(--text-muted)'" title="Kapat">&times;</button>
             </div>
             
             <div class="modal-body" style="padding: 16px;">
@@ -7307,8 +7491,13 @@
             </div>
 
             <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
-                <div style="font-size: 11.5px; color: var(--text-muted);">
-                    💡 İpucu: Katmanlar arasında manuel gezinmek için kaydırma çubuğunu sağa/sola çekebilirsiniz.
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <button type="button" class="btn btn-secondary" onclick="deleteCurrentTimelapseFromPlayer()" style="padding: 6px 12px; font-size: 11.5px; display: inline-flex; align-items: center; gap: 5px; color: var(--color-danger); border-color: rgba(239, 68, 68, 0.35);" title="Bu Kaydı Sil">
+                        🗑 Kaydı Sil
+                    </button>
+                    <span style="font-size: 11.5px; color: var(--text-muted);">
+                        💡 İpucu: Katmanlar arasında manuel gezinmek için kaydırma çubuğunu kullanabilirsiniz.
+                    </span>
                 </div>
                 <button class="btn btn-secondary" onclick="closeTimelapsePlayer()">Kapat</button>
             </div>
@@ -7397,6 +7586,23 @@
             }
         }
 
+        async function recompileTimelapse(id) {
+            try {
+                const resp = await fetch(`/api/timelapse/compile/${encodeURIComponent(id)}`, { method: 'POST' });
+                const data = await resp.json();
+                if (data.ok) {
+                    alert(data.message || 'Video derleme işlemi arka planda başlatıldı.');
+                    setTimeout(() => {
+                        if (typeof loadTimelapseRecordings === 'function') loadTimelapseRecordings();
+                    }, 1200);
+                } else {
+                    alert('Hata: ' + (data.error || 'Derleme başlatılamadı'));
+                }
+            } catch(e) {
+                alert('Bağlantı hatası: ' + e.message);
+            }
+        }
+
         function renderTimelapseGrid(recordings) {
             const grid = document.getElementById('tlVideoGrid');
             const empty = document.getElementById('tlEmptyState');
@@ -7412,11 +7618,28 @@
             grid.innerHTML = recordings.map(rec => {
                 const thumbUrl = `/api/timelapse/thumbnail/${rec.id}?t=${Date.now()}`;
                 const downloadUrl = `/api/timelapse/video/${rec.id}?download=1`;
-                const dateStr = rec.end_time ? new Date(rec.end_time * 1000).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : (rec.date || '');
-                const formatBadge = (rec.video_file && rec.video_file.endsWith('.mp4')) ? 'MP4' : 'WebP';
+                const frameCount = rec.frame_count || rec.captured_frames || 0;
+                
+                let dateStr = rec.date || '';
+                if (!dateStr && rec.end_time) {
+                    if (typeof rec.end_time === 'number') {
+                        dateStr = new Date(rec.end_time * 1000).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                    } else {
+                        dateStr = String(rec.end_time);
+                    }
+                } else if (!dateStr && rec.start_time) {
+                    if (typeof rec.start_time === 'number') {
+                        dateStr = new Date(rec.start_time * 1000).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                    } else {
+                        dateStr = String(rec.start_time);
+                    }
+                }
+
+                const hasVideo = Boolean(rec.has_video);
+                const formatBadge = hasVideo ? ((rec.video_file && rec.video_file.endsWith('.mp4')) ? 'MP4' : 'WebP') : (frameCount > 0 ? 'Derleniyor' : 'Kayıt Yok');
                 
                 return `
-                    <div class="card" style="padding: 0; overflow: hidden; background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; transition: transform 0.2s ease, border-color 0.2s ease;">
+                    <div class="card" id="tlCard_${encodeURIComponent(rec.id)}" style="padding: 0; overflow: hidden; background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; transition: transform 0.2s ease, opacity 0.2s ease, border-color 0.2s ease;">
                         <!-- Thumbnail with Play Overlay -->
                         <div style="position: relative; aspect-ratio: 16/9; background: #000000; cursor: pointer; overflow: hidden;" onclick="openTimelapsePlayer('${rec.id}')">
                             <img src="${thumbUrl}" alt="${rec.filename}" style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s ease;" onerror="this.src='/hFlashForgeLogo.png'; this.style.objectFit='contain';">
@@ -7427,9 +7650,9 @@
                             </div>
                             <!-- Badges -->
                             <span style="position: absolute; bottom: 8px; left: 8px; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); font-size: 10px; font-family: 'JetBrains Mono', monospace; padding: 2px 6px; border-radius: 4px; color: #38bdf8;">
-                                📸 ${rec.frame_count} Kare
+                                📸 ${frameCount} Kare
                             </span>
-                            <span style="position: absolute; top: 8px; right: 8px; background: rgba(79, 70, 229, 0.85); font-size: 9.5px; font-weight: 700; padding: 2px 6px; border-radius: 4px; color: #ffffff;">
+                            <span style="position: absolute; top: 8px; right: 8px; background: ${hasVideo ? 'rgba(79, 70, 229, 0.85)' : 'rgba(234, 88, 12, 0.85)'}; font-size: 9.5px; font-weight: 700; padding: 2px 6px; border-radius: 4px; color: #ffffff;">
                                 ${formatBadge}
                             </span>
                         </div>
@@ -7449,10 +7672,17 @@
                                 <button type="button" class="btn btn-primary" onclick="openTimelapsePlayer('${rec.id}')" style="flex: 1; padding: 5px 8px; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 4px;">
                                     ▶ İzle
                                 </button>
-                                <a href="${downloadUrl}" download="${rec.filename || 'timelapse'}.${formatBadge.toLowerCase()}" class="btn btn-secondary" style="padding: 5px 8px; font-size: 11px; display: flex; align-items: center; justify-content: center; text-decoration: none; color: var(--color-bed);" title="İndir">
-                                    ⬇
-                                </a>
-                                <button type="button" class="btn btn-secondary" onclick="deleteTimelapse('${rec.id}')" style="padding: 5px 8px; font-size: 11px; color: var(--color-danger); border-color: rgba(239, 68, 68, 0.2);" title="Sil">
+                                ${!hasVideo && frameCount > 0 ? `
+                                    <button type="button" class="btn btn-secondary" onclick="recompileTimelapse('${rec.id}')" style="padding: 5px 8px; font-size: 11px; color: #f59e0b;" title="Videoyu Yeniden Derle">
+                                        ⚙️ Derle
+                                    </button>
+                                ` : ''}
+                                ${hasVideo ? `
+                                    <a href="${downloadUrl}" download="${rec.filename || 'timelapse'}.${formatBadge.toLowerCase()}" class="btn btn-secondary" style="padding: 5px 8px; font-size: 11px; display: flex; align-items: center; justify-content: center; text-decoration: none; color: var(--color-bed);" title="İndir">
+                                        ⬇
+                                    </a>
+                                ` : ''}
+                                <button type="button" class="btn btn-secondary" data-id="${rec.id}" onclick="deleteTimelapse(this.getAttribute('data-id'))" style="padding: 5px 8px; font-size: 11px; color: var(--color-danger); border-color: rgba(239, 68, 68, 0.2);" title="Sil">
                                     🗑
                                 </button>
                             </div>
@@ -7609,20 +7839,47 @@
         }
 
         async function deleteTimelapse(sessionId) {
-            if (!confirm("Bu Time-Lapse kaydını silmek istediğinize emin misiniz?")) {
+            if (!sessionId) return;
+            if (!confirm("Bu Time-Lapse kaydını kalıcı olarak silmek istediğinize emin misiniz?")) {
                 return;
             }
+            if (currentTlSession && currentTlSession.id === sessionId) {
+                closeTimelapsePlayer();
+            }
+            const cardEl = document.getElementById('tlCard_' + encodeURIComponent(sessionId)) || document.getElementById('tlCard_' + sessionId);
+            if (cardEl) {
+                cardEl.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
+                cardEl.style.opacity = '0.3';
+                cardEl.style.transform = 'scale(0.95)';
+            }
             try {
-                const res = await fetch(`/api/timelapse/${sessionId}`, { method: 'DELETE' });
+                const res = await fetch(`/api/timelapse/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
                 const data = await res.json();
                 if (data.ok) {
-                    loadTimelapseRecordings();
+                    if (cardEl) cardEl.remove();
+                    currentTlRecordings = (currentTlRecordings || []).filter(r => r.id !== sessionId);
+                    renderTimelapseGrid(currentTlRecordings);
+                    await loadTimelapseRecordings();
                 } else {
+                    if (cardEl) {
+                        cardEl.style.opacity = '1';
+                        cardEl.style.transform = 'none';
+                    }
                     alert('Silme başarısız: ' + (data.error || 'Bilinmeyen hata'));
                 }
             } catch(e) {
+                if (cardEl) {
+                    cardEl.style.opacity = '1';
+                    cardEl.style.transform = 'none';
+                }
                 alert('İstek gönderilemedi: ' + e);
             }
+        }
+
+        async function deleteCurrentTimelapseFromPlayer() {
+            if (!currentTlSession || !currentTlSession.id) return;
+            const targetId = currentTlSession.id;
+            await deleteTimelapse(targetId);
         }
     </script>
 </body>
